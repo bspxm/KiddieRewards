@@ -32,7 +32,10 @@ import {
   Smile,
   LayoutDashboard,
   Users,
-  Trash2
+  Trash2,
+  Edit2,
+  Clock,
+  Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { io, Socket } from 'socket.io-client';
@@ -49,15 +52,18 @@ import { UserProfile, RewardRule, RewardItem, RedemptionRecord, PointHistory, Ta
 
 // --- Components ---
 
-const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode }: { 
+const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode, onSetTheme, currentTheme }: { 
   user: UserProfile | null, 
   socket: Socket | null, 
   onLogout: () => void,
   isChildMode?: boolean,
-  onSwitchMode?: () => void
+  onSwitchMode?: () => void,
+  onSetTheme?: (theme: string) => void,
+  currentTheme?: string
 }) => {
   const [notifications, setNotifications] = useState<string[]>([]);
   const [showNotif, setShowNotif] = useState(false);
+  const [showThemeSelector, setShowThemeSelector] = useState(false);
 
   useEffect(() => {
     if (!socket) return;
@@ -80,10 +86,10 @@ const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode }: {
   return (
     <nav className="fixed top-0 left-0 right-0 h-20 bg-white/80 backdrop-blur-md border-b border-gray-100 z-[100] flex items-center justify-between px-6 lg:px-12">
       <div className="flex items-center gap-2">
-        <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
+        <div className="w-10 h-10 bg-brand rounded-xl flex items-center justify-center text-white shadow-lg shadow-brand-light">
           <Star size={24} fill="currentColor" />
         </div>
-        <span className="font-sans font-black text-xl tracking-tighter text-gray-900 hidden sm:block">KiddieRewards</span>
+        <span className="font-sans font-black text-xl tracking-tighter text-gray-900 hidden sm:block">圆滚滚银行</span>
       </div>
 
       <div className="flex items-center gap-4 sm:gap-6">
@@ -92,8 +98,8 @@ const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode }: {
             onClick={onSwitchMode}
             className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold text-xs transition-all ${
               isChildMode 
-              ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
-              : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+              ? 'bg-secondary-light text-secondary-hover hover:opacity-80' 
+              : 'bg-brand-light text-brand hover:opacity-80'
             }`}
           >
             {isChildMode ? <Settings size={14} /> : <Smile size={14} />}
@@ -102,8 +108,48 @@ const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode }: {
         )}
         <div className="relative">
           <button 
-            onClick={() => setShowNotif(!showNotif)}
-            className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors relative"
+            onClick={() => { setShowThemeSelector(!showThemeSelector); setShowNotif(false); }}
+            className={`p-2 rounded-full transition-colors ${showThemeSelector ? 'bg-brand shadow-lg text-white' : 'text-gray-400 hover:text-brand hover:bg-brand-light'}`}
+          >
+            <Sparkles size={20} />
+          </button>
+          <AnimatePresence>
+            {showThemeSelector && onSetTheme && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-3xl shadow-2xl p-3 z-50"
+              >
+                <div className="flex flex-col gap-1">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 px-2">选择配色主题</p>
+                  {[
+                    { id: 'default', name: '绝绝紫', color: '#4f46e5' },
+                    { id: 'ocean', name: '深邃海洋', color: '#0284c7' },
+                    { id: 'forest', name: '碧绿森林', color: '#16a34a' },
+                    { id: 'sunset', name: '暖阳橙', color: '#ea580c' },
+                    { id: 'sakura', name: '樱花粉', color: '#db2777' }
+                  ].map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => { onSetTheme(t.id); setShowThemeSelector(false); }}
+                      className={`flex items-center gap-3 p-2 rounded-2xl transition-all ${currentTheme === t.id ? 'bg-brand-light' : 'hover:bg-gray-50'}`}
+                    >
+                      <div className="w-6 h-6 rounded-full shadow-inner" style={{ backgroundColor: t.color }} />
+                      <span className={`text-xs font-bold ${currentTheme === t.id ? 'text-brand' : 'text-gray-600'}`}>{t.name}</span>
+                      {currentTheme === t.id && <Check size={12} className="ml-auto text-brand" />}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="relative">
+          <button 
+            onClick={() => { setShowNotif(!showNotif); setShowThemeSelector(false); }}
+            className="p-2 text-gray-400 hover:text-brand hover:bg-brand-light rounded-full transition-colors relative"
           >
             <Bell size={20} />
             {notifications.length > 0 && (
@@ -134,7 +180,7 @@ const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode }: {
         </div>
 
         <div className="flex items-center gap-3 bg-gray-50 py-1.5 pl-1.5 pr-4 rounded-full border border-gray-100">
-          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-indigo-600 shadow-sm font-bold overflow-hidden text-sm">
+          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-brand shadow-sm font-bold overflow-hidden text-sm">
             {user?.name[0] || 'U'}
           </div>
           <div className="hidden md:block">
@@ -157,6 +203,8 @@ const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode }: {
 const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
   const [families, setFamilies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchFamilies = async () => {
     try {
@@ -179,8 +227,8 @@ const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
     fetchFamilies();
   }, []);
 
-  const deleteFamily = async (id: string) => {
-    if (!confirm('确定要删除这个家庭吗？所有数据（用户、规则、纪录）都将被永久清除。')) return;
+  const executeDeleteFamily = async (id: string) => {
+    setDeleteError(null);
     try {
       const res = await fetch(`/api/admin/families/${id}`, { method: 'DELETE' });
       if (!res.ok) {
@@ -188,9 +236,10 @@ const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
         throw new Error(errorData.error || '删除失败');
       }
       fetchFamilies();
+      setConfirmDeleteId(null);
     } catch (e) {
       console.error("Delete Family Error:", e);
-      alert(e instanceof Error ? e.message : '删除出错了');
+      setDeleteError(e instanceof Error ? e.message : '删除出错了');
     }
   };
 
@@ -198,7 +247,7 @@ const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <nav className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between sticky top-0 z-50">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white">
+          <div className="w-10 h-10 bg-brand rounded-xl flex items-center justify-center text-white">
             <LayoutDashboard size={24} />
           </div>
           <div>
@@ -220,7 +269,7 @@ const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
 
         {loading ? (
           <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-4 border-indigo-600 border-t-transparent"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-brand border-t-transparent"></div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -229,20 +278,20 @@ const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                 key={f.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-[2.5rem] border-2 border-transparent hover:border-indigo-100 shadow-sm hover:shadow-xl transition-all overflow-hidden group"
+                className="bg-white rounded-[2.5rem] border-2 border-transparent hover:border-brand-light shadow-sm hover:shadow-xl transition-all overflow-hidden group"
               >
-                <div className="bg-indigo-50 p-8 flex items-center justify-between">
+                <div className="bg-brand-light p-8 flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm">
+                    <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-brand shadow-sm">
                       <Users size={28} />
                     </div>
                     <div>
                       <h3 className="text-xl font-black text-gray-900 leading-tight">{f.name}</h3>
-                      <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest mt-1">家庭 ID: {f.id}</p>
+                      <p className="text-xs font-bold text-brand-light uppercase tracking-widest mt-1">家庭 ID: {f.id}</p>
                     </div>
                   </div>
                   <button 
-                    onClick={() => deleteFamily(f.id)}
+                    onClick={() => setConfirmDeleteId(f.id)}
                     className="w-10 h-10 bg-white/50 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded-full flex items-center justify-center transition-all opacity-0 group-hover:opacity-100"
                   >
                     <Trash2 size={18} />
@@ -250,16 +299,51 @@ const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                 </div>
 
                 <div className="p-8 space-y-6">
+                  <div className="flex justify-between items-center bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1.5 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                        <Calendar size={12} />
+                        注册时间
+                      </div>
+                      <span className="text-xs font-bold text-gray-700">
+                        {f.createdAt ? new Date(f.createdAt).toLocaleDateString() : '未知'}
+                      </span>
+                    </div>
+                    <div className="w-px h-8 bg-gray-200"></div>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1.5 text-[10px] font-black text-brand uppercase tracking-widest">
+                        <Clock size={12} />
+                        最后活跃
+                      </div>
+                      <span className="text-xs font-bold text-gray-700">
+                        {f.lastActiveAt ? new Date(f.lastActiveAt).toLocaleString() : '未知'}
+                      </span>
+                    </div>
+                  </div>
+
                   <div>
+                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">家长账号</h4>
+                    <div className="flex flex-wrap gap-2 mb-6">
+                      {f.parents.map((p: any) => (
+                        <div key={p.id} className="bg-brand-light/30 rounded-full px-3 py-1 flex items-center gap-2 border border-brand/10">
+                          <User size={12} className="text-brand" />
+                          <span className="text-xs font-black text-brand">{p.name}</span>
+                        </div>
+                      ))}
+                      {f.parents.length === 0 && (
+                        <span className="text-xs text-gray-400 italic">暂无家长</span>
+                      )}
+                    </div>
+
                     <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">关联小朋友</h4>
                     <div className="grid grid-cols-2 gap-3">
                       {f.children.map((c: any) => (
                         <div key={c.id} className="bg-gray-50 rounded-2xl p-4 flex flex-col items-center gap-2 border border-gray-100">
-                          <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-indigo-400 shadow-sm">
+                          <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-brand-light shadow-sm">
                             <User size={16} />
                           </div>
                           <span className="text-xs font-black text-gray-700">{c.name}</span>
-                          <span className="text-[10px] font-bold text-amber-500 flex items-center gap-1">
+                          <span className="text-[10px] font-bold text-secondary flex items-center gap-1">
                             <Star size={10} fill="currentColor" /> {c.points}
                           </span>
                         </div>
@@ -273,7 +357,7 @@ const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                   <div className="pt-4 border-t border-gray-50 flex items-center justify-between">
                     <div className="flex -space-x-2">
                        {[1,2,3].map(i => (
-                         <div key={i} className="w-8 h-8 rounded-full bg-white border-2 border-gray-50 flex items-center justify-center text-[10px] font-bold text-indigo-200">
+                         <div key={i} className="w-8 h-8 rounded-full bg-white border-2 border-gray-50 flex items-center justify-center text-[10px] font-bold text-brand-light/30">
                            {i}
                          </div>
                        ))}
@@ -286,17 +370,58 @@ const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
           </div>
         )}
       </main>
+
+      {/* Delete Confirmation Modal */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-gray-900/40 backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl"
+          >
+            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-2xl font-black text-gray-900 text-center mb-2">删除这个家庭？</h3>
+            <p className="text-sm font-bold text-gray-500 text-center mb-2">这个操作是不可逆的。</p>
+            <p className="text-xs text-gray-400 text-center mb-6">所有相关的用户、规则、奖励记录都将被永久清除。</p>
+            
+            {deleteError && (
+              <div className="bg-red-50 text-red-500 p-3 rounded-xl text-center text-xs font-bold mb-6">
+                {deleteError}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button 
+                onClick={() => { setConfirmDeleteId(null); setDeleteError(null); }}
+                className="flex-1 bg-gray-100 text-gray-500 font-bold py-4 rounded-2xl hover:bg-gray-200 transition-colors"
+              >
+                取消
+              </button>
+              <button 
+                onClick={() => executeDeleteFamily(confirmDeleteId)}
+                className="flex-1 bg-red-500 text-white font-bold py-4 rounded-2xl shadow-lg shadow-red-500/30 hover:bg-red-600 transition-colors"
+              >
+                彻底删除
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };
 
 // --- Parent Logic ---
 
-const ParentView = ({ user, socket, onSwitchToChild, onLogout }: { 
+const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, currentTheme }: { 
   user: UserProfile, 
   socket: Socket | null,
   onSwitchToChild: () => void,
-  onLogout: () => void
+  onLogout: () => void,
+  onSetTheme: (theme: string) => void,
+  currentTheme: string
 }) => {
   const [activeTab, setActiveTab ] = useState('dashboard');
   const [children, setChildren] = useState<UserProfile[]>([]);
@@ -309,8 +434,11 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
   const [pendingTasks, setPendingTasks] = useState<TaskSubmission[]>([]);
   const [showAddReward, setShowAddReward] = useState(false);
   const [newReward, setNewReward] = useState({ title: '', pointsRequired: 50 });
+  const [editingReward, setEditingReward] = useState<RewardItem | null>(null);
+
   const [showAddRule, setShowAddRule] = useState(false);
-  const [newRule, setNewRule] = useState({ title: '', points: 10, description: '' });
+  const [newRule, setNewRule] = useState({ title: '', points: 10, description: '', isRepeating: true });
+  const [editingRule, setEditingRule] = useState<RewardRule | null>(null);
   const [taskToReject, setTaskToReject] = useState<TaskSubmission | null>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState('');
   const [showAddChild, setShowAddChild] = useState(false);
@@ -338,12 +466,32 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
     fetchData();
   };
 
+  const updateReward = async () => {
+    if (!editingReward) return;
+    await fetch(`/api/rewards/${editingReward.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editingReward)
+    });
+    setEditingReward(null);
+    fetchData();
+    if (socket) socket.emit('update_data', { parentId: user.id });
+  };
+
+  const deleteReward = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('确定要删除这个愿望吗？')) return;
+    await fetch(`/api/rewards/${id}`, { method: 'DELETE' });
+    fetchData();
+    if (socket) socket.emit('update_data', { parentId: user.id });
+  };
+
   const fetchData = async () => {
     try {
       const resUsers = await fetch('/api/users');
+      if (!resUsers.ok) throw new Error(`Users API: ${resUsers.status}`);
       const allUsers = await resUsers.json();
       
-      // Filter by familyId to show all members within the family
       const members = allUsers.filter((u: UserProfile) => u.familyId === user.familyId);
       const myChildren = members.filter((u: UserProfile) => u.role === 'child');
       setChildren(myChildren);
@@ -361,6 +509,11 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
         fetch(`/api/rewards/${user.id}`),
         fetch(`/api/tasks/pending/${user.id}`)
       ]);
+
+      if (!resRules.ok || !resRecords.ok || !resRewards.ok || !resTasks.ok) {
+        throw new Error("One or more dashboard APIs failed");
+      }
+
       setRules(await resRules.json());
       setRecords(await resRecords.json());
       setRewards(await resRewards.json());
@@ -368,10 +521,13 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
 
       if (activeChild) {
         const resStats = await fetch(`/api/stats/${activeChild.id}`);
-        setStats(await resStats.json());
+        if (resStats.ok) {
+          setStats(await resStats.json());
+        }
       }
     } catch (error) {
-      console.error("Fetch data error:", error);
+      console.error("Parent fetchData Error:", error);
+      // Optional: Add a small delay and retry once if it's a network error
     }
   };
 
@@ -443,9 +599,29 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...newRule, id, parentId: user.id })
     });
-    setNewRule({ title: '', points: 10, description: '' });
+    setNewRule({ title: '', points: 10, description: '', isRepeating: true });
     setShowAddRule(false);
     fetchData();
+  };
+
+  const updateRule = async () => {
+    if (!editingRule) return;
+    await fetch(`/api/rules/${editingRule.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editingRule)
+    });
+    setEditingRule(null);
+    fetchData();
+    if (socket) socket.emit('update_data', { parentId: user.id });
+  };
+
+  const deleteRule = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('确定要删除这个规则吗？小朋友将无法再申请此任务。')) return;
+    await fetch(`/api/rules/${id}`, { method: 'DELETE' });
+    fetchData();
+    if (socket) socket.emit('update_data', { parentId: user.id });
   };
 
   useEffect(() => {
@@ -545,27 +721,27 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                   onClick={() => setSelectedChildId(c.id)}
                   className={`w-full flex items-center justify-between p-3 rounded-2xl transition-all ${
                     selectedChildId === c.id 
-                    ? 'bg-amber-50 border-2 border-amber-100 shadow-sm' 
+                    ? 'bg-secondary-light border-2 border-secondary shadow-sm' 
                     : 'bg-gray-50 border-2 border-transparent grayscale opacity-60 hover:grayscale-0 hover:opacity-100'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${selectedChildId === c.id ? 'bg-amber-500 text-white' : 'bg-gray-200 text-gray-400'}`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${selectedChildId === c.id ? 'bg-secondary text-white' : 'bg-gray-200 text-gray-400'}`}>
                       <Smile size={20} />
                     </div>
-                    <span className={`font-black text-sm ${selectedChildId === c.id ? 'text-amber-700' : 'text-gray-500'}`}>{c.name}</span>
+                    <span className={`font-black text-sm ${selectedChildId === c.id ? 'text-secondary-hover' : 'text-gray-500'}`}>{c.name}</span>
                   </div>
                   {selectedChildId === c.id && (
                     <div className="flex flex-col items-end">
-                      <span className="text-[10px] font-black text-amber-600 leading-none">{c.points}</span>
-                      <span className="text-[8px] font-bold text-amber-400 uppercase tracking-tighter">星币</span>
+                      <span className="text-[10px] font-black text-secondary-hover leading-none">{c.points}</span>
+                      <span className="text-[8px] font-bold text-secondary uppercase tracking-tighter">星币</span>
                     </div>
                   )}
                 </button>
               ))}
               <button 
                 onClick={() => setShowAddChild(true)}
-                className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-gray-100 text-gray-400 hover:border-indigo-100 hover:text-indigo-600 transition-all text-xs font-bold"
+                className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-gray-100 text-gray-400 hover:border-brand-light hover:text-brand transition-all text-xs font-bold"
               >
                 <Plus size={16} />
                 添加新成员
@@ -590,8 +766,8 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                   onClick={() => setActiveTab(item.id)}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${
                     activeTab === item.id 
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' 
-                    : 'text-gray-500 hover:bg-gray-50 hover:text-indigo-600'
+                    ? 'bg-brand text-white shadow-lg shadow-brand-light' 
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-brand'
                   }`}
                 >
                   <item.icon size={18} />
@@ -629,22 +805,22 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                 <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm overflow-hidden relative">
                    <div className="flex items-center justify-between mb-4">
                       <h3 className="font-bold text-gray-800">直接加分</h3>
-                      <button onClick={() => setActiveTab('rules')} className="text-xs text-indigo-600 font-bold hover:underline">管理规则</button>
+                      <button onClick={() => setActiveTab('rules')} className="text-xs text-brand font-bold hover:underline">管理规则</button>
                    </div>
                    <div className="space-y-3">
                       {rules.slice(0, 3).map(rule => (
                         <button 
                           key={rule.id}
                           onClick={() => awardPointsDirectly(rule)}
-                          className="w-full flex items-center justify-between p-3 rounded-2xl border border-gray-50 hover:border-indigo-100 hover:bg-indigo-50/30 transition-all group"
+                          className="w-full flex items-center justify-between p-3 rounded-2xl border border-gray-50 hover:border-brand-light hover:bg-brand-light/30 transition-all group"
                         >
                           <div className="flex items-center gap-3">
-                             <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400 group-hover:bg-white group-hover:text-indigo-600 transition-colors">
+                             <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400 group-hover:bg-white group-hover:text-brand transition-colors">
                                <Plus size={18} />
                              </div>
                              <span className="font-semibold text-sm text-gray-700">{rule.title}</span>
                           </div>
-                          <span className="font-bold text-indigo-600">+{rule.points}</span>
+                          <span className="font-bold text-brand">+{rule.points}</span>
                         </button>
                       ))}
                    </div>
@@ -653,18 +829,18 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                 <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm">
                    <div className="flex items-center justify-between mb-4">
                       <h3 className="font-bold text-gray-800">待确认任务 ({pendingTasks.length})</h3>
-                      <button onClick={() => setActiveTab('task_approval')} className="text-xs text-indigo-600 font-bold hover:underline">查看全部</button>
+                      <button onClick={() => setActiveTab('task_approval')} className="text-xs text-brand font-bold hover:underline">查看全部</button>
                    </div>
                    <div className="space-y-3">
                       {pendingTasks.slice(0, 3).map(task => (
-                        <div key={task.id} className="flex items-center justify-between p-3 rounded-2xl bg-indigo-50/50 border border-indigo-100/50">
+                        <div key={task.id} className="flex items-center justify-between p-3 rounded-2xl bg-brand-light/50 border border-brand-light/50">
                           <div>
-                            <p className="font-semibold text-sm text-indigo-900">{task.title}</p>
-                            <p className="text-[10px] font-bold text-indigo-600/70">{child?.name} 申请加分</p>
+                            <p className="font-semibold text-sm text-brand-hover">{task.title}</p>
+                            <p className="text-[10px] font-bold text-brand-hover/70">{child?.name} 申请加分</p>
                           </div>
                           <button 
                             onClick={() => approveTask(task)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-xl shadow-md shadow-indigo-200 transition-colors"
+                            className="bg-brand hover:bg-brand-hover text-white p-2 rounded-xl shadow-md shadow-brand-light transition-colors"
                           >
                             <Check size={16} />
                           </button>
@@ -684,18 +860,18 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                 <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm">
                    <div className="flex items-center justify-between mb-4">
                       <h3 className="font-bold text-gray-800">待处理兑换 ({records.filter(r => r.status === 'pending').length})</h3>
-                      <button onClick={() => setActiveTab('redemptions')} className="text-xs text-indigo-600 font-bold hover:underline">去审批</button>
+                      <button onClick={() => setActiveTab('redemptions')} className="text-xs text-brand font-bold hover:underline">去审批</button>
                    </div>
                    <div className="space-y-3">
                       {records.filter(r => r.status === 'pending').slice(0, 3).map(record => (
-                        <div key={record.id} className="flex items-center justify-between p-3 rounded-2xl bg-amber-50/50 border border-amber-100/50">
+                        <div key={record.id} className="flex items-center justify-between p-3 rounded-2xl bg-secondary-light/50 border border-secondary/20">
                           <div>
-                            <p className="font-semibold text-sm text-amber-900">{record.rewardTitle}</p>
-                            <p className="text-[10px] font-bold text-amber-600/70">{child?.name} 发起</p>
+                            <p className="font-semibold text-sm text-secondary-hover">{record.rewardTitle}</p>
+                            <p className="text-[10px] font-bold text-secondary-hover/70">{child?.name} 发起</p>
                           </div>
                           <button 
                             onClick={() => approveRedemption(record)}
-                            className="bg-amber-500 hover:bg-amber-600 text-white p-2 rounded-xl shadow-md shadow-amber-200 transition-colors"
+                            className="bg-secondary hover:bg-secondary-hover text-white p-2 rounded-xl shadow-md shadow-secondary-light transition-colors"
                           >
                             <Check size={16} />
                           </button>
@@ -722,7 +898,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                   <h1 className="text-3xl font-black text-gray-900 tracking-tight">奖励项目管理</h1>
                   <button 
                     onClick={() => setShowAddReward(true)}
-                    className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-2xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-colors"
+                    className="flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-2xl font-bold shadow-lg shadow-brand-light hover:bg-brand-hover transition-colors"
                   >
                     <Plus size={20} />
                     <span>添加奖励</span>
@@ -730,14 +906,24 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                </div>
                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {rewards.map(item => (
-                    <div key={item.id} className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
-                        <div className="w-16 h-16 bg-gray-50 rounded-2xl overflow-hidden flex-shrink-0">
-                           <img src={`https://picsum.photos/seed/${item.id}/100/100`} alt="" className="w-full h-full object-cover" />
-                        </div>
-                        <div>
-                           <p className="font-bold text-gray-800">{item.title}</p>
-                           <p className="text-xs text-indigo-600 font-bold">需 {item.pointsRequired} 星币</p>
-                        </div>
+                    <div key={item.id} className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
+                       <div className="flex items-center gap-4">
+                          <div className="w-16 h-16 bg-brand-light text-brand rounded-2xl flex items-center justify-center flex-shrink-0">
+                             <Gift size={32} />
+                          </div>
+                          <div>
+                             <p className="font-bold text-gray-800">{item.title}</p>
+                             <p className="text-xs text-brand font-bold">需 {item.pointsRequired} 星币</p>
+                          </div>
+                       </div>
+                       <div className="flex items-center gap-2">
+                          <button onClick={() => setEditingReward(item)} className="p-2 text-gray-400 hover:text-brand hover:bg-brand-light rounded-xl transition-colors">
+                             <Edit2 size={18} />
+                          </button>
+                          <button onClick={(e) => deleteReward(item.id, e)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors">
+                             <Trash2 size={18} />
+                          </button>
+                       </div>
                     </div>
                   ))}
                </div>
@@ -753,7 +939,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                           <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">奖励名称</label>
                           <input 
                             type="text" 
-                            className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-indigo-500" 
+                            className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" 
                             placeholder="如：半小时平板时间"
                             value={newReward.title}
                             onChange={(e) => setNewReward({...newReward, title: e.target.value})}
@@ -763,16 +949,55 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                           <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">所需星币</label>
                           <input 
                             type="number" 
-                            className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-indigo-500"
+                            className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand"
                             value={newReward.pointsRequired}
                             onChange={(e) => setNewReward({...newReward, pointsRequired: parseInt(e.target.value)})}
                           />
                         </div>
                         <button 
                           onClick={addReward}
-                          className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg shadow-xl shadow-indigo-100 hover:bg-indigo-700 mt-4"
+                          className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4"
                         >
                           确认添加
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
+               </AnimatePresence>
+
+               {/* Edit Reward Modal */}
+               <AnimatePresence>
+                {editingReward && (
+                  <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEditingReward(null)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+                    <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-3xl p-8 max-w-md w-full relative z-10 shadow-2xl">
+                      <h2 className="text-2xl font-black mb-6 text-gray-900">编辑奖励项目</h2>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">奖励名称</label>
+                          <input 
+                            type="text" 
+                            className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" 
+                            placeholder="如：半小时平板时间"
+                            value={editingReward.title}
+                            onChange={(e) => setEditingReward({...editingReward, title: e.target.value})}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">所需星币</label>
+                          <input 
+                            type="number" 
+                            className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand"
+                            value={editingReward.pointsRequired}
+                            onChange={(e) => setEditingReward({...editingReward, pointsRequired: parseInt(e.target.value)})}
+                          />
+                        </div>
+                        <button 
+                          onClick={updateReward}
+                          className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4"
+                        >
+                          确认修改
                         </button>
                       </div>
                     </motion.div>
@@ -798,9 +1023,9 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                     <Line 
                       type="monotone" 
                       dataKey="total" 
-                      stroke="#4f46e5" 
+                      stroke="var(--color-brand)" 
                       strokeWidth={3} 
-                      dot={{ r: 4, fill: '#4f46e5', strokeWidth: 2, stroke: '#fff' }}
+                      dot={{ r: 4, fill: 'var(--color-brand)', strokeWidth: 2, stroke: '#fff' }}
                       activeDot={{ r: 6 }}
                     />
                   </LineChart>
@@ -818,10 +1043,50 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                   </div>
                </div>
 
+               {/* Section: App Settings / Themes */}
+               <section className="bg-white rounded-[2.5rem] border border-gray-100 p-8 shadow-sm">
+                  <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-8 flex items-center gap-2">
+                    <Sparkles size={14} className="text-brand" />
+                    界面主题设定
+                  </h2>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">
+                    {[
+                      { id: 'default', name: '绝绝紫', color: '#4f46e5' },
+                      { id: 'ocean', name: '深邃海洋', color: '#0284c7' },
+                      { id: 'forest', name: '碧绿森林', color: '#16a34a' },
+                      { id: 'sunset', name: '暖阳橙', color: '#ea580c' },
+                      { id: 'sakura', name: '樱花粉', color: '#db2777' }
+                    ].map(t => (
+                      <button
+                        key={t.id}
+                        onClick={() => onSetTheme(t.id)}
+                        className={`group relative flex flex-col items-center gap-3 p-4 rounded-3xl transition-all ${
+                          currentTheme === t.id 
+                          ? 'bg-brand-light border-2 border-brand shadow-md scale-105' 
+                          : 'bg-gray-50 border-2 border-transparent hover:bg-gray-100'
+                        }`}
+                      >
+                        <div 
+                          className="w-12 h-12 rounded-full shadow-inner transition-transform group-hover:scale-110" 
+                          style={{ backgroundColor: t.color }}
+                        />
+                        <span className={`text-sm font-black transition-colors ${currentTheme === t.id ? 'text-brand' : 'text-gray-600'}`}>
+                          {t.name}
+                        </span>
+                        {currentTheme === t.id && (
+                          <div className="absolute -top-2 -right-2 w-6 h-6 bg-brand text-white rounded-full flex items-center justify-center shadow-lg">
+                            <Check size={14} />
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+               </section>
+
                {/* Section: Your Account */}
                <section className="bg-white rounded-[2.5rem] border border-gray-100 p-8 shadow-sm">
                   <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-8 flex items-center gap-2">
-                    <User size={14} className="text-indigo-600" />
+                    <User size={14} className="text-brand" />
                     我的账号设置
                   </h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -829,7 +1094,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2 px-2">显示名称</label>
                       <input 
                         type="text" 
-                        className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500"
+                        className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 focus:ring-2 focus:ring-brand"
                         value={profileName}
                         onChange={(e) => setProfileName(e.target.value)}
                       />
@@ -838,7 +1103,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2 px-2">修改密码 (留空则不修改)</label>
                       <input 
                         type="password" 
-                        className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500"
+                        className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 focus:ring-2 focus:ring-brand"
                         placeholder="请输入新密码"
                         value={profilePassword}
                         onChange={(e) => setProfilePassword(e.target.value)}
@@ -849,7 +1114,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                     <button 
                       onClick={updateProfile}
                       disabled={isUpdatingProfile}
-                      className="px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all disabled:opacity-50"
+                        className="px-8 py-4 bg-brand text-white rounded-2xl font-black shadow-lg shadow-brand-light hover:bg-brand-hover transition-all disabled:opacity-50"
                     >
                       {isUpdatingProfile ? '正在保存...' : '保存修改'}
                     </button>
@@ -860,12 +1125,12 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                <section className="space-y-6">
                   <div className="flex items-center justify-between">
                     <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                      <Smile size={14} className="text-amber-500" />
+                      <Smile size={14} className="text-secondary" />
                       家庭成员 (小朋友)
                     </h2>
                     <button 
                       onClick={() => setShowAddChild(true)}
-                      className="text-xs font-black text-indigo-600 hover:bg-indigo-50 px-4 py-2 rounded-xl transition-all flex items-center gap-2"
+                      className="text-xs font-black text-brand hover:bg-brand-light px-4 py-2 rounded-xl transition-all flex items-center gap-2"
                     >
                       <Plus size={14} />
                       添加成员
@@ -876,13 +1141,13 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                     {familyMembers.map(m => (
                       <div key={m.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm flex items-center justify-between group">
                         <div className="flex items-center gap-4">
-                          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${m.role === 'parent' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-500'}`}>
+                          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${m.role === 'parent' ? 'bg-brand-light text-brand' : 'bg-secondary-light text-secondary'}`}>
                             {m.role === 'parent' ? <User size={32} /> : <Smile size={32} />}
                           </div>
                           <div>
                             <p className="text-xl font-black text-gray-900">{m.name}{m.id === user.id ? ' (我)' : ''}</p>
                             <div className="flex items-center gap-2 mt-1">
-                              <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${m.role === 'parent' ? 'bg-indigo-50 text-indigo-500' : 'bg-amber-50 text-amber-500'}`}>
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${m.role === 'parent' ? 'bg-brand-light text-brand' : 'bg-secondary-light text-secondary'}`}>
                                 {m.role === 'parent' ? '家长' : '小朋友'}
                               </span>
                               <span className="text-[10px] font-bold text-gray-400">ID: {m.name}@{user.familyId}</span>
@@ -893,7 +1158,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                           <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
                             <button 
                               onClick={() => { setSelectedChildId(m.id); setShowChangePassword(true); }}
-                              className="w-10 h-10 bg-gray-50 text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl flex items-center justify-center transition-all"
+                              className="w-10 h-10 bg-gray-50 text-gray-400 hover:bg-brand-light hover:text-brand rounded-xl flex items-center justify-center transition-all"
                               title="设置密码"
                             >
                               <Lock size={18} />
@@ -920,7 +1185,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                   <h1 className="text-3xl font-black text-gray-900 tracking-tight">加分确认与管理</h1>
                   <button 
                     onClick={() => fetchData()}
-                    className="flex items-center gap-2 text-indigo-600 font-bold hover:bg-indigo-50 px-4 py-2 rounded-xl transition-colors"
+                    className="flex items-center gap-2 text-brand font-bold hover:bg-brand-light px-4 py-2 rounded-xl transition-colors"
                   >
                     <RotateCw size={18} />
                     <span>刷新列表</span>
@@ -931,14 +1196,17 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                     {pendingTasks.map(task => (
                       <div key={task.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm flex items-center justify-between">
                          <div className="flex items-center gap-5">
-                            <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                            <div className="w-14 h-14 bg-brand-light text-brand rounded-2xl flex items-center justify-center">
                                <Zap size={28} />
                             </div>
                             <div>
                                <p className="text-xl font-bold text-gray-900">{task.title}</p>
                                <div className="flex items-center gap-3 mt-1">
-                                  <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">+{task.points} 星币</span>
+                                 <span className="text-xs font-black text-brand bg-brand-light px-2 py-0.5 rounded">+{task.points} 星币</span>
                                   <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{child?.name}</span>
+                                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 px-2 py-0.5 rounded">
+                                    {new Date(task.timestamp).toLocaleString()}
+                                  </span>
                                </div>
                             </div>
                          </div>
@@ -951,7 +1219,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                             </button>
                             <button 
                               onClick={() => approveTask(task)}
-                              className="bg-indigo-600 text-white px-6 h-12 rounded-2xl font-black text-lg shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-colors"
+                              className="bg-brand text-white px-6 h-12 rounded-2xl font-black text-lg shadow-lg shadow-brand-light hover:bg-brand-hover transition-colors"
                             >
                               确认通过
                             </button>
@@ -976,7 +1244,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                   <h1 className="text-3xl font-black text-gray-900 tracking-tight">奖励规则管理</h1>
                   <button 
                     onClick={() => setShowAddRule(true)}
-                    className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-2xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-colors"
+                    className="flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-2xl font-bold shadow-lg shadow-brand-light hover:bg-brand-hover transition-colors"
                   >
                     <Plus size={20} />
                     <span>添加新规则</span>
@@ -986,13 +1254,26 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                   {rules.map(rule => (
                     <div key={rule.id} className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
                         <div className="flex items-center gap-4">
-                           <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                           <div className="w-12 h-12 bg-brand-light text-brand rounded-2xl flex items-center justify-center">
                               <Zap size={24} />
                            </div>
                            <div>
                               <p className="font-bold text-gray-800">{rule.title}</p>
-                              <p className="text-xs text-gray-400 font-medium">加分: {rule.points}</p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-[10px] font-black text-brand bg-brand-light px-2 py-0.5 rounded">+{rule.points} 星币</span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${rule.isRepeating ? 'bg-blue-50 text-blue-500' : 'bg-orange-50 text-orange-500'}`}>
+                                  {rule.isRepeating ? '日常规则' : '特别加分'}
+                                </span>
+                              </div>
                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                           <button onClick={() => setEditingRule(rule)} className="p-2 text-gray-400 hover:text-brand hover:bg-brand-light rounded-xl transition-colors">
+                              <Edit2 size={18} />
+                           </button>
+                           <button onClick={(e) => deleteRule(rule.id, e)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors">
+                              <Trash2 size={18} />
+                           </button>
                         </div>
                     </div>
                   ))}
@@ -1010,7 +1291,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                           <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">任务名称</label>
                           <input 
                             type="text" 
-                            className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold focus:ring-2 focus:ring-indigo-500 text-gray-900" 
+                            className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold focus:ring-2 focus:ring-brand text-gray-900" 
                             placeholder="如：自己刷牙"
                             value={newRule.title}
                             onChange={(e) => setNewRule({...newRule, title: e.target.value})}
@@ -1020,16 +1301,92 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                           <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">奖励数值 (星币)</label>
                           <input 
                             type="number" 
-                            className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold focus:ring-2 focus:ring-indigo-500 text-gray-900"
+                            className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold focus:ring-2 focus:ring-brand text-gray-900"
                             value={newRule.points}
                             onChange={(e) => setNewRule({...newRule, points: parseInt(e.target.value)})}
                           />
                         </div>
+                        <div>
+                          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1 px-1">任务性质</label>
+                          <div className="grid grid-cols-2 gap-3 p-1 bg-gray-50 rounded-2xl">
+                             <button
+                               onClick={() => setNewRule({ ...newRule, isRepeating: true })}
+                               className={`py-3 rounded-xl text-xs font-bold transition-all ${newRule.isRepeating ? 'bg-white shadow-sm text-brand' : 'text-gray-400 hover:text-gray-600'}`}
+                             >
+                               日常习惯 (可重复)
+                             </button>
+                             <button
+                               onClick={() => setNewRule({ ...newRule, isRepeating: false })}
+                               className={`py-3 rounded-xl text-xs font-bold transition-all ${!newRule.isRepeating ? 'bg-white shadow-sm text-orange-500' : 'text-gray-400 hover:text-gray-600'}`}
+                             >
+                               特别表现 (一次性)
+                             </button>
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-2 px-1">
+                            {newRule.isRepeating ? '💡 这类任务适合每天都要做的习惯，完成后还可以继续领。' : '💡 这类任务完成后就会从列表消失，适合偶尔的特别奖励。'}
+                          </p>
+                        </div>
                         <button 
                           onClick={addRule}
-                          className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg shadow-xl shadow-indigo-100 hover:bg-indigo-700 mt-4"
+                          className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4"
                         >
                           确认添加
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
+               </AnimatePresence>
+
+               {/* Edit Rule Modal */}
+               <AnimatePresence>
+                {editingRule && (
+                  <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEditingRule(null)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+                    <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-3xl p-8 max-w-md w-full relative z-10 shadow-2xl">
+                      <h2 className="text-2xl font-black mb-6">修改任务规则</h2>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">任务名称</label>
+                          <input 
+                            type="text" 
+                            className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold focus:ring-2 focus:ring-brand text-gray-900" 
+                            placeholder="如：自己刷牙"
+                            value={editingRule.title}
+                            onChange={(e) => setEditingRule({...editingRule, title: e.target.value})}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">奖励数值 (星币)</label>
+                          <input 
+                            type="number" 
+                            className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold focus:ring-2 focus:ring-brand text-gray-900"
+                            value={editingRule.points}
+                            onChange={(e) => setEditingRule({...editingRule, points: parseInt(e.target.value)})}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1 px-1">任务性质</label>
+                          <div className="grid grid-cols-2 gap-3 p-1 bg-gray-50 rounded-2xl">
+                             <button
+                               onClick={() => setEditingRule({ ...editingRule, isRepeating: true })}
+                               className={`py-3 rounded-xl text-xs font-bold transition-all ${editingRule.isRepeating ? 'bg-white shadow-sm text-brand' : 'text-gray-400 hover:text-gray-600'}`}
+                             >
+                               日常习惯 (可重复)
+                             </button>
+                             <button
+                               onClick={() => setEditingRule({ ...editingRule, isRepeating: false })}
+                               className={`py-3 rounded-xl text-xs font-bold transition-all ${!editingRule.isRepeating ? 'bg-white shadow-sm text-orange-500' : 'text-gray-400 hover:text-gray-600'}`}
+                             >
+                               特别表现 (一次性)
+                             </button>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={updateRule}
+                          className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4"
+                        >
+                          确认修改
                         </button>
                       </div>
                     </motion.div>
@@ -1045,7 +1402,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                   <h1 className="text-3xl font-black text-gray-900 tracking-tight">愿望兑换审批</h1>
                   <button 
                     onClick={() => fetchData()}
-                    className="flex items-center gap-2 text-indigo-600 font-bold hover:bg-indigo-50 px-4 py-2 rounded-xl transition-colors"
+                    className="flex items-center gap-2 text-brand font-bold hover:bg-brand-light px-4 py-2 rounded-xl transition-colors"
                   >
                     <RotateCw size={18} />
                     <span>刷新</span>
@@ -1055,7 +1412,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                {/* Section 1: Pending Redemptions */}
                <section className="space-y-4">
                   <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></div>
+                    <div className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></div>
                     待处理申请
                   </h2>
                   {records.filter(r => r.status === 'pending').length > 0 ? (
@@ -1063,15 +1420,15 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                        {records.filter(r => r.status === 'pending').map(record => {
                          const reward = rewards.find(rw => rw.id === record.rewardId);
                          return (
-                           <div key={record.id} className="bg-white p-6 rounded-[2.5rem] border-2 border-amber-100 shadow-sm flex items-center justify-between">
+                           <div key={record.id} className="bg-white p-6 rounded-[2.5rem] border-2 border-secondary-light shadow-sm flex items-center justify-between">
                               <div className="flex items-center gap-5">
-                                 <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center">
+                                 <div className="w-14 h-14 bg-secondary-light text-secondary rounded-2xl flex items-center justify-center">
                                     <Gift size={28} />
                                  </div>
                                  <div>
                                     <p className="text-xl font-bold text-gray-900">{record.rewardTitle}</p>
                                     <div className="flex items-center gap-3 mt-1">
-                                       <span className="text-xs font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded">
+                                       <span className="text-xs font-black text-secondary bg-secondary-light px-2 py-0.5 rounded">
                                          需 {reward?.pointsRequired || '?'} 星币
                                        </span>
                                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{child?.name} 的申请</span>
@@ -1084,7 +1441,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                                    disabled={child && child.points < (reward?.pointsRequired || 0)}
                                    className={`px-8 h-12 rounded-2xl font-black text-lg transition-all shadow-lg active:scale-95 ${
                                      child && child.points >= (reward?.pointsRequired || 0)
-                                     ? 'bg-amber-500 text-white shadow-amber-100 hover:bg-amber-600'
+                                     ? 'bg-secondary text-white shadow-secondary-light hover:bg-secondary-hover'
                                      : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
                                    }`}
                                  >
@@ -1155,13 +1512,13 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                   <div className="grid grid-cols-2 gap-4">
                     <button 
                       onClick={() => setNewMemberRole('child')}
-                      className={`py-3 rounded-xl font-bold text-sm transition-all ${newMemberRole === 'child' ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}
+                      className={`py-3 rounded-xl font-bold text-sm transition-all ${newMemberRole === 'child' ? 'bg-brand text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}
                     >
                       小朋友
                     </button>
                     <button 
                       onClick={() => setNewMemberRole('parent')}
-                      className={`py-3 rounded-xl font-bold text-sm transition-all ${newMemberRole === 'parent' ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}
+                      className={`py-3 rounded-xl font-bold text-sm transition-all ${newMemberRole === 'parent' ? 'bg-brand text-white shadow-md' : 'bg-gray-100 text-gray-400'}`}
                     >
                       家长/长辈
                     </button>
@@ -1171,7 +1528,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">成员名称</label>
                   <input 
                     type="text" 
-                    className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-indigo-500" 
+                    className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" 
                     placeholder="例如：乐妈"
                     value={newChildName}
                     onChange={(e) => setNewChildName(e.target.value)}
@@ -1181,7 +1538,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">初始密码</label>
                   <input 
                     type="password" 
-                    className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-indigo-500" 
+                    className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" 
                     placeholder="默认 123456"
                     value={newChildPassword}
                     onChange={(e) => setNewChildPassword(e.target.value)}
@@ -1189,7 +1546,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                 </div>
                 <button 
                    onClick={addMember}
-                   className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg shadow-xl shadow-indigo-100 hover:bg-indigo-700 mt-4"
+                   className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4"
                 >
                   确认添加成员
                 </button>
@@ -1250,14 +1607,14 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowChangePassword(false)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-[2.5rem] p-8 max-w-md w-full relative z-10 shadow-2xl">
               <h2 className="text-2xl font-black mb-2 text-gray-900">修改登录密码</h2>
-              <p className="text-gray-500 mb-6 font-medium">正在为 <span className="text-indigo-600 font-bold">{child?.name}</span> 设置新密码：</p>
+              <p className="text-gray-500 mb-6 font-medium">正在为 <span className="text-brand font-bold">{child?.name}</span> 设置新密码：</p>
               
               <div className="space-y-4">
                 <div>
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1 px-2">新密码</label>
                   <input 
                     type="password" 
-                    className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 outline-none focus:ring-2 focus:ring-indigo-500" 
+                    className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 outline-none focus:ring-2 focus:ring-brand" 
                     placeholder="请输入 4-12 位密码"
                     value={changedPassword}
                     onChange={(e) => setChangedPassword(e.target.value)}
@@ -1276,7 +1633,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
                     onClick={updateChildPassword}
                     disabled={changedPassword.length < 4}
                     className={`py-4 rounded-2xl font-black text-white shadow-lg transition-all ${
-                      changedPassword.length >= 4 ? 'bg-indigo-600 shadow-indigo-100 hover:bg-indigo-700' : 'bg-gray-200 cursor-not-allowed shadow-none'
+                      changedPassword.length >= 4 ? 'bg-brand shadow-brand-light hover:bg-brand-hover' : 'bg-gray-200 cursor-not-allowed shadow-none'
                     }`}
                   >
                     确认修改
@@ -1302,7 +1659,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout }: {
           <button 
             key={item.id} 
             onClick={() => setActiveTab(item.id)}
-            className={`p-3 rounded-2xl transition-all ${activeTab === item.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-gray-400'}`}
+            className={`p-3 rounded-2xl transition-all ${activeTab === item.id ? 'bg-brand text-white shadow-lg shadow-brand-light' : 'text-gray-400'}`}
           >
             <item.icon size={24} />
           </button>
@@ -1328,26 +1685,70 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
   const [showCelebration, setShowCelebration] = useState(false);
   const [celebratedReward, setCelebratedReward] = useState<RewardItem | null>(null);
   const [redemptions, setRedemptions] = useState<RedemptionRecord[]>([]);
+  const [allSubmissions, setAllSubmissions] = useState<TaskSubmission[]>([]);
+  const [showPointsIncrease, setShowPointsIncrease] = useState(false);
+  const [pointsDiff, setPointsDiff] = useState(0);
 
   const fetchData = async () => {
-    const [resRewards, resHistory, resUser, resRules, resRejected, resNotifs, resRedemptions] = await Promise.all([
-      fetch(`/api/rewards/${user.parentId}`),
-      fetch(`/api/history/${user.id}`),
-      fetch(`/api/users/${user.id}`),
-      fetch(`/api/rules/${user.parentId}`),
-      fetch(`/api/tasks/rejected/${user.id}`),
-      fetch(`/api/notifications/${user.id}`),
-      fetch(`/api/redemptions/child/${user.id}`)
-    ]);
-    setRewards(await resRewards.json());
-    setHistory(await resHistory.json());
-    setRules(await resRules.json());
-    setRejectedTasks(await resRejected.json());
-    setNotifications(await resNotifs.json());
-    setRedemptions( await resRedemptions.json());
-    const updatedUser = await resUser.json();
-    setLocalPoints(updatedUser.points);
+    try {
+      const [resRewards, resHistory, resUser, resRules, resRejected, resNotifs, resRedemptions, resAllSubs] = await Promise.all([
+        fetch(`/api/rewards/${user.parentId}`),
+        fetch(`/api/history/${user.id}`),
+        fetch(`/api/users/${user.id}`),
+        fetch(`/api/rules/${user.parentId}`),
+        fetch(`/api/tasks/rejected/${user.id}`),
+        fetch(`/api/notifications/${user.id}`),
+        fetch(`/api/redemptions/child/${user.id}`),
+        fetch(`/api/tasks/all/${user.id}`)
+      ]);
+
+      if (!resRewards.ok || !resHistory.ok || !resUser.ok || !resRules.ok || !resRejected.ok || !resNotifs.ok || !resRedemptions.ok || !resAllSubs.ok) {
+        throw new Error("One or more child APIs failed");
+      }
+
+      const [rewardsData, historyData, userData, rulesData, rejectedData, notifsData, redemptionsData, allSubsData] = await Promise.all([
+        resRewards.json(),
+        resHistory.json(),
+        resUser.json(),
+        resRules.json(),
+        resRejected.json(),
+        resNotifs.json(),
+        resRedemptions.json(),
+        resAllSubs.json()
+      ]);
+
+      setRewards(rewardsData);
+      setHistory(historyData);
+      setRules(rulesData);
+      setRejectedTasks(rejectedData);
+      setNotifications(notifsData);
+      setRedemptions(redemptionsData);
+      setAllSubmissions(allSubsData);
+      
+      const newPoints = userData.points;
+      const cachedPoints = localStorage.getItem(`kiddie_last_points_${user.id}`);
+      if (cachedPoints !== null) {
+        const lastPoints = parseInt(cachedPoints, 10);
+        if (newPoints > lastPoints) {
+          setPointsDiff(newPoints - lastPoints);
+          setShowPointsIncrease(true);
+          setTimeout(() => setShowPointsIncrease(false), 3500);
+        }
+      }
+      localStorage.setItem(`kiddie_last_points_${user.id}`, newPoints.toString());
+      setLocalPoints(newPoints);
+    } catch (error) {
+      console.error("Child fetchData Error:", error);
+    }
   };
+
+  const filteredRules = useMemo(() => {
+    return rules.filter(rule => {
+      if (rule.isRepeating) return true;
+      const hasSubmission = allSubmissions.some(s => s.ruleId === rule.id && s.status !== 'rejected');
+      return !hasSubmission;
+    });
+  }, [rules, allSubmissions]);
 
   const submitTask = async (rule: RewardRule) => {
     setSubmittingId(rule.id);
@@ -1459,15 +1860,15 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
         <div>
           <h1 className="text-3xl font-black text-gray-900 tracking-tight">你好呀，{user.name}！</h1>
           <p className="text-gray-500 font-bold flex items-center gap-2">
-            <Trophy size={16} className="text-amber-500" />
+            <Trophy size={16} className="text-secondary" />
             今天也要继续加油哦！
           </p>
         </div>
         <button 
           onClick={() => { setShowNotifCenter(true); markNotifsRead(); }}
-          className="w-16 h-16 bg-white border-2 border-gray-50 rounded-[1.8rem] shadow-sm flex items-center justify-center relative hover:shadow-xl hover:border-indigo-100 transition-all active:scale-95"
+          className="w-16 h-16 bg-white border-2 border-gray-50 rounded-[1.8rem] shadow-sm flex items-center justify-center relative hover:shadow-xl hover:border-brand-light transition-all active:scale-95"
         >
-          <Bell size={28} className={notifications.some(n => !n.isRead) ? "text-indigo-600 animate-bounce" : "text-gray-400"} />
+          <Bell size={28} className={notifications.some(n => !n.isRead) ? "text-brand animate-bounce" : "text-gray-400"} />
           {notifications.some(n => !n.isRead) && (
             <span className="absolute top-4 right-4 w-5 h-5 bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white shadow-lg">
               {notifications.filter(n => !n.isRead).length}
@@ -1483,7 +1884,7 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
             initial={{ opacity: 0, y: -20, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.9 }}
-            className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-indigo-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 font-bold"
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-brand text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 font-bold"
           >
             <div className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center">
               <Check size={16} />
@@ -1497,31 +1898,42 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
         <motion.div 
           initial={{ scale: 0.9, opacity: 0 }} 
           animate={{ scale: 1, opacity: 1 }}
-          className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden"
+          className="bg-gradient-to-br from-brand to-brand-hover rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden"
         >
+          {showPointsIncrease && (
+            <motion.div 
+              initial={{ opacity: 0, y: 20, scale: 0.5 }}
+              animate={{ opacity: 1, y: -40, scale: 1.2 }}
+              exit={{ opacity: 0 }}
+              className="absolute right-8 top-1/2 -translate-y-1/2 text-yellow-300 font-black text-4xl flex items-center gap-1 z-50 drop-shadow-xl"
+            >
+              +{pointsDiff} <Star fill="currentColor" size={32} className="animate-spin-slow" />
+            </motion.div>
+          )}
+          
           <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
           <div className="flex items-center justify-between relative z-10">
             <div>
               <p className="text-white/70 text-sm font-bold uppercase tracking-widest mb-1">我的星币</p>
               <h2 className="text-6xl font-black">{localPoints}</h2>
             </div>
-            <div className="bg-white/20 p-4 rounded-3xl backdrop-blur-sm">
-               <Star size={48} fill="currentColor" />
+            <div className={`bg-white/20 p-4 rounded-3xl backdrop-blur-sm transition-transform duration-500 ${showPointsIncrease ? 'scale-125 rotate-12 bg-yellow-400/30' : ''}`}>
+               <Star size={48} fill="currentColor" className={showPointsIncrease ? 'text-yellow-300' : ''} />
             </div>
           </div>
         </motion.div>
 
         <div className="grid grid-cols-2 gap-4">
-           <button onClick={() => setActiveTab('rewards')} className={`flex flex-col items-center justify-center rounded-[2rem] border-2 transition-all ${activeTab === 'rewards' ? 'bg-white border-indigo-500 shadow-xl shadow-indigo-100' : 'bg-gray-50 border-transparent text-gray-400'}`}>
-              <Gift size={32} className={activeTab === 'rewards' ? 'text-indigo-600' : ''} />
+           <button onClick={() => setActiveTab('rewards')} className={`flex flex-col items-center justify-center rounded-[2rem] border-2 transition-all ${activeTab === 'rewards' ? 'bg-white border-brand shadow-xl shadow-brand-light' : 'bg-gray-50 border-transparent text-gray-400'}`}>
+              <Gift size={32} className={activeTab === 'rewards' ? 'text-brand' : ''} />
               <span className="font-black mt-2 text-sm">愿望单</span>
            </button>
-           <button onClick={() => setActiveTab('history')} className={`flex flex-col items-center justify-center rounded-[2rem] border-2 transition-all ${activeTab === 'history' ? 'bg-white border-indigo-500 shadow-xl shadow-indigo-100' : 'bg-gray-50 border-transparent text-gray-400'}`}>
-              <History size={32} className={activeTab === 'history' ? 'text-indigo-600' : ''} />
+           <button onClick={() => setActiveTab('history')} className={`flex flex-col items-center justify-center rounded-[2rem] border-2 transition-all ${activeTab === 'history' ? 'bg-white border-brand shadow-xl shadow-brand-light' : 'bg-gray-50 border-transparent text-gray-400'}`}>
+              <History size={32} className={activeTab === 'history' ? 'text-brand' : ''} />
               <span className="font-black mt-2 text-sm">成长足迹</span>
            </button>
-           <button onClick={() => setActiveTab('tasks')} className={`flex flex-col items-center justify-center rounded-[2rem] border-2 transition-all ${activeTab === 'tasks' ? 'bg-white border-indigo-500 shadow-xl shadow-indigo-100' : 'bg-gray-50 border-transparent text-gray-400'}`}>
-              <Zap size={32} className={activeTab === 'tasks' ? 'text-indigo-600' : ''} />
+           <button onClick={() => setActiveTab('tasks')} className={`flex flex-col items-center justify-center rounded-[2rem] border-2 transition-all ${activeTab === 'tasks' ? 'bg-white border-brand shadow-xl shadow-brand-light' : 'bg-gray-50 border-transparent text-gray-400'}`}>
+              <Zap size={32} className={activeTab === 'tasks' ? 'text-brand' : ''} />
               <span className="font-black mt-2 text-sm">做任务</span>
            </button>
         </div>
@@ -1531,44 +1943,75 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
         <AnimatePresence mode="wait">
           {activeTab === 'tasks' && (
             <motion.div key="tasks" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {rules.map(rule => (
+              {filteredRules.map(rule => {
+                const ruleSubmissions = allSubmissions.filter(s => s.ruleId === rule.id);
+                const pendingSubmission = ruleSubmissions.find(s => s.status === 'pending');
+                const latestSubmission = ruleSubmissions.sort((a, b) => b.timestamp - a.timestamp)[0];
+                const isRejectedToday = latestSubmission?.status === 'rejected' && new Date(latestSubmission.timestamp).toDateString() === new Date().toDateString();
+                const isApprovedToday = ruleSubmissions.some(s => s.status === 'approved' && new Date(s.timestamp).toDateString() === new Date().toDateString());
+                const isRuleDisabled = submittingId === rule.id || !!pendingSubmission || isRejectedToday || isApprovedToday;
+
+                return (
                 <button 
                    key={rule.id}
-                   onClick={() => !submittingId && submitTask(rule)}
-                   disabled={submittingId === rule.id}
-                   className={`bg-white p-6 rounded-[2rem] border shadow-sm flex items-center justify-between group transition-all text-left relative overflow-hidden ${
-                     submittingId === rule.id ? 'border-indigo-300 bg-indigo-50/20' : 'border-gray-100 hover:border-indigo-600'
+                   onClick={() => !isRuleDisabled && submitTask(rule)}
+                   disabled={isRuleDisabled}
+                   className={`bg-white p-6 rounded-[2rem] border flex items-center justify-between transition-all text-left relative overflow-hidden ${
+                     isRuleDisabled ? 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-80' : 'border-gray-100 hover:border-brand shadow-sm group'
                    }`}
                 >
                    {submittingId === rule.id && (
                      <motion.div 
-                       className="absolute bottom-0 left-0 h-1 bg-indigo-600"
+                       className="absolute bottom-0 left-0 h-1 bg-brand"
                        initial={{ width: 0 }}
                        animate={{ width: "100%" }}
                      />
                    )}
-                   <div className="flex items-center gap-4">
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
-                        submittingId === rule.id ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-600'
+                   <div className="flex items-center gap-4 flex-1 min-w-0">
+                      <div className={`w-12 h-12 flex-shrink-0 rounded-xl flex items-center justify-center transition-colors ${
+                        submittingId === rule.id ? 'bg-brand text-white' : 'bg-brand-light text-brand'
                       }`}>
                          <Zap size={24} className={submittingId === rule.id ? 'animate-pulse' : ''} />
                       </div>
-                      <div>
-                         <p className="font-black text-gray-900">{rule.title}</p>
-                         <p className="text-xs font-bold text-gray-400 tracking-widest">+ {rule.points} 星币</p>
+                      <div className="flex-1 min-w-0 pr-4">
+                         <p className="font-black text-gray-900 break-words whitespace-normal leading-snug">{rule.title}</p>
+                         <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] font-bold text-gray-400 tracking-widest">+ {rule.points} 星币</span>
+                            <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${rule.isRepeating ? 'bg-blue-50 text-blue-500' : 'bg-orange-50 text-orange-500'}`}>
+                              {rule.isRepeating ? '日常' : '特别'}
+                            </span>
+                         </div>
                       </div>
                    </div>
                    <div className={`p-2 rounded-full transition-all ${
-                     submittingId === rule.id ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-50 text-gray-300 group-hover:bg-indigo-600 group-hover:text-white'
+                     isRuleDisabled ? 'bg-transparent text-gray-400' : 'bg-gray-50 text-gray-300 group-hover:bg-brand group-hover:text-white'
                    }`}>
                       {submittingId === rule.id ? (
-                        <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                        <div className="w-5 h-5 border-2 border-brand border-t-transparent rounded-full animate-spin" />
+                      ) : pendingSubmission ? (
+                        <span className="text-xs font-black uppercase tracking-widest bg-gray-200 text-gray-500 px-3 py-1.5 rounded-full whitespace-nowrap">审核中</span>
+                      ) : isRejectedToday ? (
+                        <span className="text-xs font-black uppercase tracking-widest bg-red-50 text-red-500 px-3 py-1.5 rounded-full whitespace-nowrap">未通过</span>
+                      ) : isApprovedToday ? (
+                        <span className="text-xs font-black uppercase tracking-widest bg-green-50 text-green-600 px-3 py-1.5 rounded-full whitespace-nowrap border border-green-100">今日已完成</span>
                       ) : (
                         <Check size={20} />
                       )}
                    </div>
                 </button>
-              ))}
+                );
+              })}
+              {filteredRules.length === 0 && (
+                <div className="col-span-full py-20 flex flex-col items-center justify-center text-center space-y-4">
+                  <div className="w-24 h-24 bg-brand-light rounded-[2.5rem] flex items-center justify-center text-brand">
+                    <Zap size={48} className="opacity-40" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-gray-900">太棒了！</h3>
+                    <p className="text-gray-500 font-bold mt-1">今天所有的任务都完成了，<br/>或者等爸爸妈妈给你加新任务哦！</p>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
           {activeTab === 'rewards' && (
@@ -1578,21 +2021,16 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
                 return (
                   <div key={item.id} className="bg-white rounded-[2rem] border border-gray-100 p-6 flex flex-col gap-4 shadow-sm group hover:shadow-xl transition-all duration-300 relative">
                     {pendingRecord && (
-                      <div className="absolute top-4 right-4 z-10 bg-amber-500 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg animate-pulse">
+                      <div className="absolute top-4 right-4 z-10 bg-secondary text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg animate-pulse">
                         审批中
                       </div>
                     )}
-                    <div className="w-full aspect-video bg-indigo-50 rounded-2xl flex items-center justify-center overflow-hidden">
-                      <img 
-                        src={`https://picsum.photos/seed/${item.id}/400/300`} 
-                        alt={item.title} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                        referrerPolicy="no-referrer"
-                      />
+                    <div className="w-full aspect-video bg-brand-light text-brand/30 rounded-2xl flex items-center justify-center overflow-hidden">
+                       <Gift size={80} className="group-hover:scale-110 group-hover:text-brand/50 transition-all duration-300" />
                     </div>
                     <div>
                       <h3 className="text-xl font-black text-gray-900 leading-tight">{item.title}</h3>
-                      <div className="flex items-center gap-1 mt-2 text-indigo-600 font-black">
+                      <div className="flex items-center gap-1 mt-2 text-brand font-black">
                         <Star size={16} fill="currentColor"/>
                         <span>需要 {item.pointsRequired} 星币</span>
                       </div>
@@ -1604,7 +2042,7 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
                         pendingRecord 
                         ? 'bg-gray-50 text-gray-300 cursor-not-allowed border-2 border-dashed border-gray-100'
                         : localPoints >= item.pointsRequired 
-                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100 active:scale-95' 
+                        ? 'bg-brand text-white shadow-lg shadow-brand-light active:scale-95' 
                         : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                       }`}
                     >
@@ -1613,6 +2051,17 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
                   </div>
                 );
               })}
+              {rewards.length === 0 && (
+                <div className="col-span-full py-20 flex flex-col items-center justify-center text-center space-y-4">
+                  <div className="w-24 h-24 bg-secondary-light rounded-[2.5rem] flex items-center justify-center text-secondary">
+                    <Gift size={48} className="opacity-40" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-gray-900">愿望单是空的哦</h3>
+                    <p className="text-gray-500 font-bold mt-1">快去告诉爸爸妈妈<br/>你想要什么奖励吧！</p>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -1641,16 +2090,16 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
               )}
               {history.map(item => (
                 <div key={item.id} className="bg-white p-5 rounded-[1.5rem] border border-gray-100 shadow-sm flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${item.type === 'earn' ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600'}`}>
+                  <div className="flex items-center gap-4 flex-1 min-w-0 pr-4">
+                    <div className={`w-12 h-12 flex-shrink-0 rounded-xl flex items-center justify-center ${item.type === 'earn' ? 'bg-green-50 text-green-600' : 'bg-secondary-light text-secondary'}`}>
                        {item.type === 'earn' ? <Zap size={24} /> : <Gift size={24} />}
                     </div>
-                    <div>
-                      <p className="font-bold text-gray-800">{item.reason}</p>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{new Date(item.timestamp).toLocaleDateString()}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-800 break-words whitespace-normal leading-snug">{item.reason}</p>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">{new Date(item.timestamp).toLocaleDateString()}</p>
                     </div>
                   </div>
-                  <div className={`font-black text-xl ${item.type === 'earn' ? 'text-green-600' : 'text-amber-600'}`}>
+                  <div className={`font-black text-xl ${item.type === 'earn' ? 'text-green-600' : 'text-secondary'}`}>
                     {item.type === 'earn' ? '+' : '-'}{item.amount}
                   </div>
                 </div>
@@ -1678,7 +2127,7 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
              >
                 <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                    <div className="w-12 h-12 bg-brand-light text-brand rounded-2xl flex items-center justify-center">
                        <Bell size={24} />
                     </div>
                     <div>
@@ -1694,7 +2143,7 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
                 <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
                    {notifications.length > 0 ? (
                      notifications.map(notif => (
-                       <div key={notif.id} className={`p-5 rounded-[2rem] border transition-all ${notif.isRead ? 'bg-gray-50/50 border-gray-100 opacity-60' : 'bg-white border-indigo-100 shadow-sm'}`}>
+                       <div key={notif.id} className={`p-5 rounded-[2rem] border transition-all ${notif.isRead ? 'bg-gray-50/50 border-gray-100 opacity-60' : 'bg-white border-brand-light shadow-sm'}`}>
                           <div className="flex items-center gap-3 mb-2">
                              <div className={`w-2 h-2 rounded-full ${notif.type === 'success' ? 'bg-green-500' : notif.type === 'error' ? 'bg-red-500' : 'bg-blue-500'}`}></div>
                              <p className="font-black text-sm text-gray-900">{notif.title}</p>
@@ -1716,7 +2165,7 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
 
                 <button 
                   onClick={() => setShowNotifCenter(false)}
-                  className="w-full mt-8 bg-indigo-600 text-white py-4 rounded-[1.8rem] font-black text-lg shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95"
+                  className="w-full mt-8 bg-brand text-white py-4 rounded-[1.8rem] font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover transition-all active:scale-95"
                 >
                   知道啦
                 </button>
@@ -1732,7 +2181,7 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-indigo-600/90 backdrop-blur-xl"
+            className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-brand/90 backdrop-blur-xl"
           >
             <motion.div 
               initial={{ scale: 0.5, y: 100, rotate: -10 }}
@@ -1747,7 +2196,7 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
                     scale: [1, 1.2, 1, 1.2, 1]
                   }}
                   transition={{ duration: 2, repeat: Infinity }}
-                  className="w-40 h-40 bg-white rounded-[3rem] shadow-2xl flex items-center justify-center text-indigo-600"
+                  className="w-40 h-40 bg-white rounded-[3rem] shadow-2xl flex items-center justify-center text-brand"
                 >
                   <PartyPopper size={80} />
                 </motion.div>
@@ -1775,17 +2224,12 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
               <div className="mt-16 space-y-6">
                 <div>
                   <h2 className="text-4xl font-black text-gray-900 mb-2 leading-tight">哇！太棒了！</h2>
-                  <p className="text-indigo-600 font-black text-xl">成功兑换了新愿望</p>
+                  <p className="text-brand font-black text-xl">成功兑换了新愿望</p>
                 </div>
 
                 <div className="bg-gray-50 border-2 border-gray-100 rounded-[2.5rem] p-6 text-left flex items-center gap-5">
-                   <div className="w-20 h-20 bg-white rounded-3xl shadow-sm flex items-center justify-center text-indigo-600 overflow-hidden shrink-0">
-                      <img 
-                        src={`https://picsum.photos/seed/${celebratedReward.id}/200/200`} 
-                        alt="" 
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                      />
+                   <div className="w-20 h-20 bg-white rounded-3xl shadow-sm flex items-center justify-center text-brand overflow-hidden shrink-0">
+                      <Gift size={40} className="opacity-80" />
                    </div>
                    <div>
                       <p className="font-black text-gray-900 text-xl">{celebratedReward.title}</p>
@@ -1801,7 +2245,7 @@ const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null 
 
                 <button 
                   onClick={() => setShowCelebration(false)}
-                  className="w-full bg-indigo-600 text-white py-6 rounded-[2.2rem] font-black text-2xl shadow-2xl shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95 group overflow-hidden relative"
+                  className="w-full bg-brand text-white py-6 rounded-[2.2rem] font-black text-2xl shadow-2xl shadow-brand-light hover:bg-brand-hover transition-all active:scale-95 group overflow-hidden relative"
                 >
                   <span className="relative z-10 flex items-center justify-center gap-3">
                     知道啦，真开心！
@@ -1895,28 +2339,28 @@ const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) => {
   return (
     <div className="min-h-screen bg-[#FDFDFC] flex flex-col items-center justify-center p-6 relative overflow-hidden">
       {/* Decorative background elements */}
-      <div className="absolute -top-24 -left-24 w-96 h-96 bg-indigo-50 rounded-full blur-3xl opacity-50" />
-      <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-amber-50 rounded-full blur-3xl opacity-50" />
+      <div className="absolute -top-24 -left-24 w-96 h-96 bg-brand-light rounded-full blur-3xl opacity-50" />
+      <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-secondary-light rounded-full blur-3xl opacity-50" />
       
        <header className="text-center mb-12 relative z-10">
           <motion.div 
             initial={{ scale: 0, shadow: "0px 0px 0px rgba(79,70,229,0)" }} 
             animate={{ scale: 1, rotate: 360, shadow: "0px 20px 40px rgba(79,70,229,0.3)" }} 
-            className="w-24 h-24 bg-indigo-600 rounded-[2.5rem] mx-auto flex items-center justify-center text-white mb-8"
+            className="w-24 h-24 bg-brand rounded-[2.5rem] mx-auto flex items-center justify-center text-white mb-8"
           >
             <Star size={48} fill="currentColor" />
           </motion.div>
-          <h1 className="text-7xl font-black text-gray-900 tracking-tighter mb-4">KiddieRewards</h1>
+          <h1 className="text-5xl sm:text-7xl font-black text-gray-900 tracking-tighter mb-4">圆滚滚银行</h1>
           <div className="flex items-center justify-center gap-3">
             <span className="h-px w-8 bg-gray-200" />
-            <p className="text-gray-400 font-black uppercase tracking-[0.3em] text-[10px]">小 星 榜 ⋅ 智 慧 育 儿</p>
+            <p className="text-gray-400 font-black uppercase tracking-[0.3em] text-[10px]">KiddieRewards ⋅ 智 慧 育 儿</p>
             <span className="h-px w-8 bg-gray-200" />
           </div>
        </header>
 
        <div className="w-full max-w-sm">
          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="bg-gray-50 p-1 rounded-[2rem] border border-gray-100 shadow-sm focus-within:ring-4 focus-within:ring-indigo-50 focus-within:border-indigo-200 transition-all">
+            <div className="bg-gray-50 p-1 rounded-[2rem] border border-gray-100 shadow-sm focus-within:ring-4 focus-within:ring-brand-light focus-within:border-brand-light transition-all">
               <div className="flex items-center gap-3 px-5 py-4">
                 <User size={20} className="text-gray-400" />
                 <input 
@@ -1951,7 +2395,7 @@ const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) => {
             <button 
               type="submit"
               disabled={loading}
-              className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-black text-xl shadow-2xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95 disabled:bg-gray-300"
+              className="w-full py-5 bg-brand text-white rounded-[2rem] font-black text-xl shadow-2xl shadow-brand-light hover:bg-brand-hover transition-all active:scale-95 disabled:bg-gray-300"
             >
               {loading ? '正在进入...' : '立即登录'}
             </button>
@@ -1960,19 +2404,10 @@ const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) => {
          <div className="mt-12 text-center space-y-6 relative z-10">
            <button 
              onClick={() => setShowRegister(true)}
-             className="text-indigo-600 font-black text-xs uppercase tracking-widest hover:text-indigo-800 transition-colors"
+             className="text-brand font-black text-xs uppercase tracking-widest hover:text-brand-hover transition-colors"
            >
              创建新家庭账户
            </button>
-           
-           <div className="bg-gray-50/80 backdrop-blur-sm border border-gray-100 rounded-2xl p-4 mt-8">
-             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">测试说明</p>
-             <div className="flex flex-col gap-1 text-[10px] font-bold text-gray-500">
-               <p>管理员: <span className="text-indigo-600">admin</span> / <span className="text-indigo-600">admin123</span></p>
-               <p>演示家庭: <span className="text-indigo-600">乐爸/乐妈@乐家</span> / <span className="text-indigo-600">123456</span></p>
-               <p>孩子端: <span className="text-indigo-600">小乐@乐家</span> / <span className="text-indigo-600">123456</span></p>
-             </div>
-           </div>
 
            <p className="text-gray-300 text-[10px] font-bold uppercase tracking-[2px]">让 每一个 小进步 都闪闪发光</p>
          </div>
@@ -1990,7 +2425,7 @@ const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) => {
                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1 px-2">家庭名称</label>
                       <input 
                         type="text"
-                        className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 outline-none focus:ring-2 focus:ring-brand"
                         placeholder="例如：乐家"
                         value={regFamilyName}
                         onChange={(e) => setRegFamilyName(e.target.value)}
@@ -2001,7 +2436,7 @@ const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) => {
                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1 px-2">家长称呼</label>
                       <input 
                         type="text"
-                        className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 outline-none focus:ring-2 focus:ring-brand"
                         placeholder="例如：乐爸"
                         value={regAdminName}
                         onChange={(e) => setRegAdminName(e.target.value)}
@@ -2012,7 +2447,7 @@ const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) => {
                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1 px-2">管理密码</label>
                       <input 
                         type="password"
-                        className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 outline-none focus:ring-2 focus:ring-brand"
                         placeholder="设置 4-12 位密码"
                         value={regPassword}
                         onChange={(e) => setRegPassword(e.target.value)}
@@ -2023,7 +2458,7 @@ const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) => {
                     <button 
                       type="submit"
                       disabled={loading || !regAdminName || regPassword.length < 4}
-                      className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-all mt-4"
+                      className="w-full py-4 bg-brand text-white rounded-2xl font-black shadow-xl hover:bg-brand-hover transition-all mt-4"
                     >
                       {loading ? '创建中...' : '确认创建'}
                     </button>
@@ -2048,8 +2483,21 @@ export default function App() {
     const saved = localStorage.getItem('kiddie_user');
     return saved ? JSON.parse(saved) : null;
   });
-  const [isChildMode, setIsChildMode] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem('kiddie_theme') || 'default');
+  const [isChildMode, setIsChildMode] = useState(() => {
+    const savedMode = localStorage.getItem('kiddie_is_child_mode');
+    if (savedMode !== null) return savedMode === 'true';
+    return currentUser?.role === 'child';
+  });
   const [socket, setSocket] = useState<Socket | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('kiddie_theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('kiddie_is_child_mode', isChildMode.toString());
+  }, [isChildMode]);
 
   useEffect(() => {
     const newSocket = io();
@@ -2062,6 +2510,9 @@ export default function App() {
   const handleLogin = (user: UserProfile) => {
     setCurrentUser(user);
     localStorage.setItem('kiddie_user', JSON.stringify(user));
+    if (user.role === 'child') {
+      setIsChildMode(true);
+    }
   };
 
   const handleLogout = () => {
@@ -2071,28 +2522,45 @@ export default function App() {
   };
 
   if (!currentUser) {
-    return <LoginView onLogin={handleLogin} />;
+    return (
+      <div className={`min-h-screen theme-transition ${theme !== 'default' ? `theme-${theme}` : ''}`}>
+        <LoginView onLogin={handleLogin} />
+      </div>
+    );
   }
 
   if (currentUser.role === 'admin') {
-    return <SuperAdminView onLogout={handleLogout} />;
+    return (
+      <div className={`min-h-screen theme-transition ${theme !== 'default' ? `theme-${theme}` : ''}`}>
+        <Navbar 
+          user={currentUser} 
+          socket={socket} 
+          onLogout={handleLogout}
+          onSetTheme={setTheme}
+          currentTheme={theme}
+        />
+        <SuperAdminView onLogout={handleLogout} />
+      </div>
+    );
   }
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-gray-50/50">
+      <div className={`min-h-screen bg-gray-50/50 theme-transition ${theme !== 'default' ? `theme-${theme}` : ''}`}>
         <Navbar 
           user={currentUser} 
           socket={socket} 
           onLogout={handleLogout} 
           isChildMode={isChildMode}
           onSwitchMode={() => setIsChildMode(!isChildMode)}
+          onSetTheme={setTheme}
+          currentTheme={theme}
         />
         <Routes>
           <Route path="/" element={
             isChildMode
             ? <ChildView user={currentUser} socket={socket} />
-            : <ParentView user={currentUser} socket={socket} onSwitchToChild={() => setIsChildMode(true)} onLogout={handleLogout} />
+            : <ParentView user={currentUser} socket={socket} onSwitchToChild={() => setIsChildMode(true)} onLogout={handleLogout} onSetTheme={setTheme} currentTheme={theme} />
           } />
         </Routes>
       </div>
