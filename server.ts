@@ -13,7 +13,9 @@ const db = new Database('kiddie_rewards.db');
 db.exec(`
   CREATE TABLE IF NOT EXISTS families (
     id TEXT PRIMARY KEY,
-    name TEXT UNIQUE NOT NULL
+    name TEXT UNIQUE NOT NULL,
+    createdAt INTEGER,
+    lastActiveAt INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS users (
@@ -34,7 +36,8 @@ db.exec(`
     title TEXT NOT NULL,
     description TEXT,
     points INTEGER NOT NULL,
-    icon TEXT
+    icon TEXT,
+    isRepeating INTEGER DEFAULT 1
   );
 
   CREATE TABLE IF NOT EXISTS rewards (
@@ -89,13 +92,27 @@ db.exec(`
     isRead INTEGER DEFAULT 0,
     timestamp INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS server_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );
 `);
 
 // Migrations
 try { db.exec("ALTER TABLE reward_rules ADD COLUMN familyId TEXT"); } catch(e) {}
+try { db.exec("ALTER TABLE reward_rules ADD COLUMN isRepeating INTEGER DEFAULT 1"); } catch(e) {}
 try { db.exec("ALTER TABLE rewards ADD COLUMN familyId TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE redemption_records ADD COLUMN familyId TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE task_submissions ADD COLUMN familyId TEXT"); } catch(e) {}
+try { db.exec("ALTER TABLE families ADD COLUMN createdAt INTEGER"); } catch(e) {}
+try { db.exec("ALTER TABLE families ADD COLUMN lastActiveAt INTEGER"); } catch(e) {}
+
+// Populate missing defaults
+try {
+  db.prepare("UPDATE families SET createdAt = ? WHERE createdAt IS NULL").run(Date.now());
+  db.prepare("UPDATE families SET lastActiveAt = ? WHERE lastActiveAt IS NULL").run(Date.now());
+} catch(e) {}
 
 // Populate missing familyId for existing records
 try {
@@ -136,26 +153,31 @@ async function startServer() {
       db.prepare('DELETE FROM users WHERE role = ?').run('admin');
       db.prepare('INSERT OR REPLACE INTO users (id, name, role, points, password) VALUES (?, ?, ?, ?, ?)').run('admin-sys-001', 'admin', 'admin', 0, 'admin123');
       
-      // Force reset Demo Family
-      db.prepare('DELETE FROM families WHERE name = ?').run('乐家');
-      const famId = 'fam_le';
-      db.prepare('INSERT INTO families (id, name) VALUES (?, ?)').run(famId, '乐家');
+      const isSeeded = db.prepare('SELECT value FROM server_meta WHERE key = ?').get('seeded');
+      if (!isSeeded) {
+        // Force reset Demo Family (only on first boot)
+        db.prepare('DELETE FROM families WHERE name = ?').run('乐家');
+        const famId = 'fam_le';
+        db.prepare('INSERT INTO families (id, name, createdAt, lastActiveAt) VALUES (?, ?, ?, ?)').run(famId, '乐家', Date.now(), Date.now());
 
-      db.prepare('DELETE FROM users WHERE name = ? AND familyId = ?').run('乐爸/乐妈', famId);
-      db.prepare('DELETE FROM users WHERE name = ? AND familyId = ?').run('小乐', famId);
-      
-      const pId = 'demo-p-001';
-      db.prepare('INSERT OR REPLACE INTO users (id, name, role, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?)').run(pId, '乐爸/乐妈', 'parent', 0, '123456', famId);
-      db.prepare('INSERT OR REPLACE INTO users (id, name, role, parentId, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?, ?)').run('demo-c-001', '小乐', 'child', pId, 100, '123456', famId);
-      
-      // Initial Rules/Rewards
-      db.prepare('DELETE FROM reward_rules WHERE parentId = ?').run(pId);
-      db.prepare('INSERT OR IGNORE INTO reward_rules (id, parentId, title, points, icon) VALUES (?, ?, ?, ?, ?)').run('r1', pId, '按时完成作业', 10, 'Book');
-      db.prepare('INSERT OR IGNORE INTO reward_rules (id, parentId, title, points, icon) VALUES (?, ?, ?, ?, ?)').run('r2', pId, '自己整理房间', 5, 'Home');
-      
-      db.prepare('DELETE FROM rewards WHERE parentId = ?').run(pId);
-      db.prepare('INSERT OR IGNORE INTO rewards (id, parentId, title, pointsRequired) VALUES (?, ?, ?, ?)').run('rew1', pId, '额外的30分钟游戏时间', 50);
-      db.prepare('INSERT OR IGNORE INTO rewards (id, parentId, title, pointsRequired) VALUES (?, ?, ?, ?)').run('rew2', pId, '周末去游乐场', 200);
+        db.prepare('DELETE FROM users WHERE name = ? AND familyId = ?').run('乐爸/乐妈', famId);
+        db.prepare('DELETE FROM users WHERE name = ? AND familyId = ?').run('小乐', famId);
+        
+        const pId = 'demo-p-001';
+        db.prepare('INSERT OR REPLACE INTO users (id, name, role, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?)').run(pId, '乐爸/乐妈', 'parent', 0, '123456', famId);
+        db.prepare('INSERT OR REPLACE INTO users (id, name, role, parentId, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?, ?)').run('demo-c-001', '小乐', 'child', pId, 100, '123456', famId);
+        
+        // Initial Rules/Rewards
+        db.prepare('DELETE FROM reward_rules WHERE parentId = ?').run(pId);
+        db.prepare('INSERT OR IGNORE INTO reward_rules (id, parentId, title, points, icon) VALUES (?, ?, ?, ?, ?)').run('r1', pId, '按时完成作业', 10, 'Book');
+        db.prepare('INSERT OR IGNORE INTO reward_rules (id, parentId, title, points, icon) VALUES (?, ?, ?, ?, ?)').run('r2', pId, '自己整理房间', 5, 'Home');
+        
+        db.prepare('DELETE FROM rewards WHERE parentId = ?').run(pId);
+        db.prepare('INSERT OR IGNORE INTO rewards (id, parentId, title, pointsRequired) VALUES (?, ?, ?, ?)').run('rew1', pId, '额外的30分钟游戏时间', 50);
+        db.prepare('INSERT OR IGNORE INTO rewards (id, parentId, title, pointsRequired) VALUES (?, ?, ?, ?)').run('rew2', pId, '周末去游乐场', 200);
+
+        db.prepare('INSERT INTO server_meta (key, value) VALUES (?, ?)').run('seeded', 'true');
+      }
     });
     
     initTransaction();
@@ -226,6 +248,10 @@ async function startServer() {
       return res.status(401).json({ success: false, message: '密码错误' });
     }
 
+    try {
+      db.prepare('UPDATE families SET lastActiveAt = ? WHERE id = ?').run(Date.now(), family.id);
+    } catch(e) {}
+
     console.log(`[AUTH DEBUG] Login successful: [${name}]`);
     res.json({ success: true, user: { id: user.id, name: user.name, role: user.role, parentId: user.parentId, familyId: user.familyId } });
   });
@@ -251,31 +277,42 @@ async function startServer() {
     
     try {
       const trx = db.transaction(() => {
-        // 1. Get all users in the family
-        const users = db.prepare('SELECT id FROM users WHERE familyId = ?').all() as { id: string }[];
+        // 1. Clear tables that have familyId directly
+        db.prepare('DELETE FROM reward_rules WHERE familyId = ?').run(familyId);
+        db.prepare('DELETE FROM rewards WHERE familyId = ?').run(familyId);
+        db.prepare('DELETE FROM task_submissions WHERE familyId = ?').run(familyId);
+        db.prepare('DELETE FROM redemption_records WHERE familyId = ?').run(familyId);
+
+        // 2. Get all users in the family to clear legacy/user-bound tables
+        const users = db.prepare('SELECT id FROM users WHERE familyId = ?').all(familyId) as { id: string }[];
         const userIds = users.map(u => u.id);
 
         if (userIds.length > 0) {
           const placeholders = userIds.map(() => '?').join(',');
-          
-          // 2. Clear related data for these users
-          // Using try-catch inside transaction for tables that might not have matching rows
-          db.prepare(`DELETE FROM reward_rules WHERE parentId IN (${placeholders})`).run(...userIds);
-          db.prepare(`DELETE FROM rewards WHERE parentId IN (${placeholders})`).run(...userIds);
-          db.prepare(`DELETE FROM point_history WHERE childId IN (${placeholders})`).run(...userIds);
-          db.prepare(`DELETE FROM task_submissions WHERE childId IN (${placeholders}) OR parentId IN (${placeholders})`).run(...userIds, ...userIds);
-          db.prepare(`DELETE FROM redemption_records WHERE childId IN (${placeholders}) OR parentId IN (${placeholders})`).run(...userIds, ...userIds);
-          db.prepare(`DELETE FROM notifications WHERE userId IN (${placeholders})`).run(...userIds);
-          
-          // 3. Clear users
-          db.prepare('DELETE FROM users WHERE familyId = ?').run(familyId);
+          try {
+            db.prepare(`DELETE FROM point_history WHERE childId IN (${placeholders})`).run(...userIds);
+            db.prepare(`DELETE FROM notifications WHERE userId IN (${placeholders})`).run(...userIds);
+          } catch(e) {
+            console.error("Cleanup legacy explicit tables non-fatal mapping:", e);
+          }
+        }
+        
+        // Ensure legacy reward rules or old task_submissions created before migration get cleaned up just in case
+        if (userIds.length > 0) {
+          const placeholders = userIds.map(() => '?').join(',');
+          try {
+            db.prepare(`DELETE FROM reward_rules WHERE parentId IN (${placeholders})`).run(...userIds);
+            db.prepare(`DELETE FROM rewards WHERE parentId IN (${placeholders})`).run(...userIds);
+            db.prepare(`DELETE FROM task_submissions WHERE childId IN (${placeholders}) OR parentId IN (${placeholders})`).run(...userIds, ...userIds);
+            db.prepare(`DELETE FROM redemption_records WHERE childId IN (${placeholders}) OR parentId IN (${placeholders})`).run(...userIds, ...userIds);
+          } catch(e) {}
         }
 
+        // 3. Clear users
+        db.prepare('DELETE FROM users WHERE familyId = ?').run(familyId);
+
         // 4. Finally, clear family
-        const result = db.prepare('DELETE FROM families WHERE id = ?').run(familyId);
-        if (result.changes === 0) {
-          throw new Error('找不到该家庭或家庭已删除');
-        }
+        db.prepare('DELETE FROM families WHERE id = ?').run(familyId);
       });
       
       trx();
@@ -284,6 +321,17 @@ async function startServer() {
     } catch (e) {
       console.error(`[ADMIN] Delete Family Error (${familyId}):`, e);
       res.status(500).json({ success: false, error: (e as Error).message });
+    }
+  });
+
+  app.post('/api/users/update-password', (req, res) => {
+    const { userId, newPassword } = req.body;
+    try {
+      db.prepare('UPDATE users SET password = ? WHERE id = ?').run(newPassword, userId);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ success: false, message: '更新密码失败' });
     }
   });
 
@@ -328,7 +376,7 @@ async function startServer() {
     
     try {
       const trx = db.transaction(() => {
-        db.prepare('INSERT INTO families (id, name) VALUES (?, ?)').run(famId, familyName);
+        db.prepare('INSERT INTO families (id, name, createdAt, lastActiveAt) VALUES (?, ?, ?, ?)').run(famId, familyName, Date.now(), Date.now());
         db.prepare('INSERT INTO users (id, name, role, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?)').run(pId, adminName, 'parent', 0, password || '123456', famId);
       });
       trx();
@@ -395,15 +443,27 @@ async function startServer() {
     const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(req.params.uid) as any;
     if (!user) return res.json([]);
     const rules = db.prepare('SELECT * FROM reward_rules WHERE familyId = ? OR parentId = ?').all(user.familyId, req.params.uid);
-    res.json(rules);
+    res.json(rules.map((r: any) => ({ ...r, isRepeating: !!r.isRepeating })));
   });
 
   app.post('/api/rules', (req, res) => {
-    const { id, parentId, title, points, icon, description } = req.body;
+    const { id, parentId, title, points, icon, description, isRepeating } = req.body;
     const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(parentId) as any;
-    db.prepare('INSERT INTO reward_rules (id, parentId, title, points, icon, description, familyId) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, parentId, title, points, icon, description, user?.familyId);
+    db.prepare('INSERT INTO reward_rules (id, parentId, title, points, icon, description, familyId, isRepeating) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, parentId, title, points, icon, description, user?.familyId, isRepeating ? 1 : 0);
     res.status(201).json({ success: true });
+  });
+
+  app.put('/api/rules/:id', (req, res) => {
+    const { title, points, icon, description, isRepeating } = req.body;
+    db.prepare('UPDATE reward_rules SET title = ?, points = ?, icon = ?, description = ?, isRepeating = ? WHERE id = ?')
+      .run(title, points, icon, description, isRepeating ? 1 : 0, req.params.id);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/rules/:id', (req, res) => {
+    db.prepare('DELETE FROM reward_rules WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
   });
 
   app.get('/api/rewards/:uid', (req, res) => {
@@ -419,6 +479,18 @@ async function startServer() {
     db.prepare('INSERT INTO rewards (id, parentId, title, pointsRequired, description, familyId) VALUES (?, ?, ?, ?, ?, ?)')
       .run(id, parentId, title, pointsRequired, description, user?.familyId);
     res.status(201).json({ success: true });
+  });
+
+  app.put('/api/rewards/:id', (req, res) => {
+    const { title, pointsRequired, description } = req.body;
+    db.prepare('UPDATE rewards SET title = ?, pointsRequired = ?, description = ? WHERE id = ?')
+      .run(title, pointsRequired, description, req.params.id);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/rewards/:id', (req, res) => {
+    db.prepare('DELETE FROM rewards WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
   });
 
   app.post('/api/points/add', (req, res) => {
@@ -439,6 +511,11 @@ async function startServer() {
 
   app.get('/api/tasks/rejected/:childId', (req, res) => {
     const tasks = db.prepare("SELECT * FROM task_submissions WHERE childId = ? AND status = 'rejected' ORDER BY timestamp DESC LIMIT 5").all(req.params.childId);
+    res.json(tasks);
+  });
+
+  app.get('/api/tasks/all/:childId', (req, res) => {
+    const tasks = db.prepare('SELECT * FROM task_submissions WHERE childId = ?').all(req.params.childId);
     res.json(tasks);
   });
 

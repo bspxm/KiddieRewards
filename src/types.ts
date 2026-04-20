@@ -22,6 +22,7 @@ export interface RewardRule {
   description: string;
   points: number; // Positive for earning, Negative for "cost" (if used as penalty)
   icon?: string;
+  isRepeating: boolean; // true for repeating, false for one-time
 }
 
 export interface RewardItem {
