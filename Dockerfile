@@ -1,30 +1,50 @@
-FROM node:20-slim
+# ========= 构建阶段 =========
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/node:22 AS builder
 
-# Set the working directory in the container
 WORKDIR /app
 
-# Copy the package.json and optionally package-lock.json first
-COPY package.json package-lock.json* ./
+# 国内 npm 源
+RUN npm config set registry https://registry.npmmirror.com
 
-# Install all dependencies (including devDependencies needed for vite build and tsx)
+COPY package.json package-lock.json* ./
 RUN npm install
 
-# Copy the rest of the application files
 COPY . .
 
-# Build the Vite React frontend
+# 1. 构建前端
 RUN npm run build
 
-# Expose the standard port configured in the app
-EXPOSE 3000
+# 2. 编译服务端代码
+# 将 server.js 放在根目录，避免静态路径冲突
+RUN npx esbuild server.ts --bundle --platform=node --format=esm --target=node22 --outfile=server.js --external:express --external:vite --external:better-sqlite3 --external:socket.io
 
-# Set Node environment to production so Express serves the built /dist folder
+# 3. 剔除开发依赖
+RUN npm prune --production
+
+
+# ========= 运行阶段 =========
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/node:22-slim
+
+WORKDIR /app
+
 ENV NODE_ENV=production
 
-# The application uses better-sqlite3, which saves local DB files.
-# By default, kiddie_rewards.db will be created in /app.
-# You can mount a volume to /app/data and update server.ts optionally if you want to externalize it,
-# but out of the box it operates exactly as the local dev environment.
+# 复制必要文件
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/server.js ./server.js
 
-# Start the application using tsx
-CMD ["npx", "tsx", "server.ts"]
+# 创建数据和日志目录并设置权限
+RUN mkdir -p /app/data /app/logs && chown -R node:node /app
+
+# 使用非特权用户
+USER node
+
+# 挂载卷
+VOLUME ["/app/data", "/app/logs"]
+
+EXPOSE 3000
+
+# 运行编译后的代码
+CMD ["node", "server.js"]

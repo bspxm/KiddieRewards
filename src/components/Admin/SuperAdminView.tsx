@@ -10,7 +10,10 @@ import {
   X,
   Calendar,
   ChevronRight,
-  Activity
+  Activity,
+  Settings,
+  Lock,
+  RotateCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -21,10 +24,46 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   
-  const [activeTab, setActiveTab] = useState<'families' | 'logs'>('families');
+  const [activeTab, setActiveTab] = useState<'families' | 'logs' | 'settings'>('families');
   const [logs, setLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logFilter, setLogFilter] = useState({ year: new Date().getFullYear().toString(), month: (new Date().getMonth() + 1).toString().padStart(2, '0') });
+
+  const [passwordForm, setPasswordForm] = useState({ current: '', new: '', confirm: '' });
+  const [pwdStatus, setPwdStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error', message?: string }>({ type: 'idle' });
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordForm.new !== passwordForm.confirm) {
+      setPwdStatus({ type: 'error', message: '两次输入的新密码不一致' });
+      return;
+    }
+    if (passwordForm.new.length < 6) {
+      setPwdStatus({ type: 'error', message: '新密码至少6位' });
+      return;
+    }
+
+    setPwdStatus({ type: 'loading' });
+    try {
+      const res = await fetch('/api/admin/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: passwordForm.current,
+          newPassword: passwordForm.new
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPwdStatus({ type: 'success', message: '密码修改成功' });
+        setPasswordForm({ current: '', new: '', confirm: '' });
+      } else {
+        setPwdStatus({ type: 'error', message: data.error || '修改失败' });
+      }
+    } catch (e) {
+      setPwdStatus({ type: 'error', message: '网络请求错误' });
+    }
+  };
 
   const fetchFamilies = async () => {
     try {
@@ -80,9 +119,9 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
   return (
     <div className="flex flex-col min-h-screen">
       {/* Sub-header with Tabs */}
-      <div className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-30 overflow-x-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2 sm:gap-6 w-full sm:w-auto overflow-x-auto no-scrollbar">
+      <div className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-8 flex items-center justify-start overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-2 sm:gap-4 py-4 min-w-max">
             <button 
               onClick={() => setActiveTab('families')}
               className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 rounded-2xl font-black text-xs sm:text-sm transition-all whitespace-nowrap ${activeTab === 'families' ? 'bg-brand text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}
@@ -97,10 +136,13 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
               <FileSearch size={18} />
               系统日志
             </button>
-          </div>
-          <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 rounded-2xl border border-gray-100 shrink-0">
-             <ShieldAlert size={14} className="text-brand opacity-50" />
-             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap">系统安全监控已开启</span>
+            <button 
+              onClick={() => setActiveTab('settings')}
+              className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 rounded-2xl font-black text-xs sm:text-sm transition-all whitespace-nowrap ${activeTab === 'settings' ? 'bg-brand text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}
+            >
+              <Settings size={18} />
+              系统设置
+            </button>
           </div>
         </div>
       </div>
@@ -108,7 +150,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
       <main className="flex-1 p-8 max-w-7xl mx-auto w-full">
         {activeTab === 'families' ? (
           <>
-            <header className="mb-10 flex items-center justify-between">
+            <header className="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h2 className="text-4xl font-black text-gray-900 tracking-tight">所有家庭概览</h2>
                 <p className="text-gray-500 mt-2">当前共管理 {families.length} 个活跃中心家庭</p>
@@ -177,18 +219,20 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
               </div>
             )}
           </>
-        ) : (
+        ) : activeTab === 'logs' ? (
           <>
-            <header className="mb-10 flex flex-col lg:flex-row lg:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-gray-900 tracking-tight">系统操作日志</h2>
-                <p className="text-gray-500 mt-2 font-medium flex items-center gap-2">
-                  <Activity size={16} className="text-brand" />
-                  实时监控系统核心操作与安全性事件
-                </p>
+            <header className="mb-10 flex flex-col xl:flex-row xl:items-end justify-between gap-8">
+              <div className="flex flex-col md:flex-row md:items-center justify-between flex-1 gap-6">
+                <div>
+                  <h2 className="text-4xl font-black text-gray-900 tracking-tight">系统操作日志</h2>
+                  <p className="text-gray-500 mt-2 font-medium flex items-center gap-2">
+                    <Activity size={16} className="text-brand" />
+                    实时监控核心操作与安全事件
+                  </p>
+                </div>
               </div>
               
-              <div className="relative">
+              <div className="relative shrink-0">
                 <button 
                   onClick={() => setShowDatePicker(!showDatePicker)}
                   className="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border-2 border-gray-100 shadow-sm hover:border-brand transition-all group"
@@ -253,8 +297,9 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
               </div>
             </header>
 
-            <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
+            <div className={`bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden ${logsLoading || logs.length === 0 ? '' : 'sm:border-2'}`}>
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left">
                   <thead className="bg-gray-50/50">
                     <tr>
@@ -315,8 +360,157 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                   </tbody>
                 </table>
               </div>
+
+              {/* Mobile Card View */}
+              <div className="md:hidden divide-y divide-gray-100">
+                {logsLoading ? (
+                  <div className="py-20 text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-2 border-brand border-t-transparent mx-auto"></div>
+                  </div>
+                ) : logs.length > 0 ? (
+                  logs.map((log, i) => (
+                    <div key={i} className="p-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-black tracking-widest ${
+                          log.level === 'SECURITY' ? 'bg-purple-100 text-purple-600' :
+                          log.level === 'ERROR' ? 'bg-red-100 text-red-600' :
+                          log.level === 'WARN' ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-600'
+                        }`}>
+                          {log.level}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-gray-400">
+                            {new Date(log.timestamp).toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {log.success ? (
+                            <div className="w-5 h-5 bg-green-50 text-green-500 rounded-full flex items-center justify-center">
+                              <CheckCircle size={12} />
+                            </div>
+                          ) : (
+                            <div className="w-5 h-5 bg-red-50 text-red-500 rounded-full flex items-center justify-center">
+                              <X size={12} />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="text-sm font-black text-gray-900 mb-1">{log.action}</h4>
+                        <p className="text-xs text-gray-500 font-medium leading-relaxed">{log.details}</p>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400">
+                            <Users size={12} />
+                          </div>
+                          <span className="text-[10px] font-black text-gray-600">{log.userName || 'System'}</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-gray-400 bg-gray-50 px-2 py-0.5 rounded-md">{log.ip || '-'}</span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="py-20 text-center text-gray-300 font-bold italic">该月份暂无日志记录</div>
+                )}
+              </div>
             </div>
           </>
+        ) : (
+          <div className="w-full">
+            <header className="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-4xl font-black text-gray-900 tracking-tight">系统设置</h2>
+                <p className="text-gray-500 mt-2 font-medium flex items-center gap-2">
+                  <Settings size={16} className="text-brand" />
+                  维护后台系统安全性与凭据
+                </p>
+              </div>
+            </header>
+
+            <div className="bg-white rounded-[2.5rem] border-2 border-gray-100 shadow-sm p-8 sm:p-12 max-w-2xl">
+              <div className="flex items-center gap-4 mb-10">
+                <div className="w-16 h-16 bg-brand/10 rounded-[1.5rem] flex items-center justify-center text-brand">
+                  <Lock size={32} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-gray-900 leading-tight">修改管理员密码</h3>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">SUPER ADMIN CREDENTIALS</p>
+                </div>
+              </div>
+
+              <form onSubmit={handlePasswordChange} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest ml-1">当前密码</label>
+                  <div className="relative group">
+                    <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-brand transition-colors">
+                      <Lock size={20} />
+                    </div>
+                    <input 
+                      type="password"
+                      required
+                      value={passwordForm.current}
+                      onChange={e => setPasswordForm({...passwordForm, current: e.target.value})}
+                      placeholder="请输入原密码"
+                      className="w-full pl-14 pr-6 py-5 bg-gray-50 border-2 border-transparent focus:border-brand focus:bg-white rounded-2xl outline-none font-sans font-black text-lg transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest ml-1">新密码</label>
+                    <input 
+                      type="password"
+                      required
+                      value={passwordForm.new}
+                      onChange={e => setPasswordForm({...passwordForm, new: e.target.value})}
+                      placeholder="至少6位"
+                      className="w-full px-6 py-5 bg-gray-50 border-2 border-transparent focus:border-brand focus:bg-white rounded-2xl outline-none font-sans font-black text-lg transition-all"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest ml-1">确认新密码</label>
+                    <input 
+                      type="password"
+                      required
+                      value={passwordForm.confirm}
+                      onChange={e => setPasswordForm({...passwordForm, confirm: e.target.value})}
+                      placeholder="再次输入"
+                      className="w-full px-6 py-5 bg-gray-50 border-2 border-transparent focus:border-brand focus:bg-white rounded-2xl outline-none font-sans font-black text-lg transition-all"
+                    />
+                  </div>
+                </div>
+
+                <AnimatePresence>
+                  {pwdStatus.type !== 'idle' && (
+                    <motion.div 
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className={`p-4 rounded-2xl text-sm font-bold flex items-center gap-3 ${
+                        pwdStatus.type === 'success' ? 'bg-green-50 text-green-600' : 
+                        pwdStatus.type === 'error' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-600'
+                      }`}
+                    >
+                      {pwdStatus.type === 'loading' && <RotateCw size={16} className="animate-spin" />}
+                      {pwdStatus.type === 'success' && <CheckCircle size={16} />}
+                      {pwdStatus.type === 'error' && <ShieldAlert size={16} />}
+                      {pwdStatus.message || (pwdStatus.type === 'loading' ? '正在提交...' : '')}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <button 
+                  type="submit"
+                  disabled={pwdStatus.type === 'loading'}
+                  className="w-full bg-brand text-white py-5 rounded-2xl font-black text-xl shadow-xl shadow-brand-light hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+                >
+                  确认修改
+                </button>
+              </form>
+            </div>
+          </div>
         )}
       </main>
 

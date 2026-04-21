@@ -3,12 +3,21 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { logAction, getLogs } from './server/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const db = new Database('kiddie_rewards.db');
+
+// Ensure data directory exists for persistence
+const dataDir = path.join(process.cwd(), 'data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const dbPath = path.join(dataDir, 'kiddie_rewards.db');
+const db = new Database(dbPath);
 
 // In-memory brute force protection
 const loginFailures = new Map<string, { attempts: number, lastAttempt: number }>();
@@ -187,9 +196,11 @@ async function startServer() {
   // --- Database Initialization moved inside startServer ---
   try {
     const initTransaction = db.transaction(() => {
-      // Force reset Admin
-      db.prepare('DELETE FROM users WHERE role = ?').run('admin');
-      db.prepare('INSERT OR REPLACE INTO users (id, name, role, points, password) VALUES (?, ?, ?, ?, ?)').run('admin-sys-001', 'admin', 'admin', 0, 'admin123');
+      // Initialize Admin if not exists
+      const existingAdmin = db.prepare('SELECT * FROM users WHERE role = ?').get('admin');
+      if (!existingAdmin) {
+        db.prepare('INSERT INTO users (id, name, role, points, password) VALUES (?, ?, ?, ?, ?)').run('admin-sys-001', 'admin', 'admin', 0, 'admin123');
+      }
       
       const isSeeded = db.prepare('SELECT value FROM server_meta WHERE key = ?').get('seeded');
       if (!isSeeded) {
@@ -369,6 +380,30 @@ async function startServer() {
   });
 
   // Admin: Get all families with members
+  app.post('/api/admin/change-password', (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    const admin = db.prepare("SELECT * FROM users WHERE role = 'admin' AND name = 'admin'").get() as any;
+    
+    if (!admin || admin.password !== currentPassword) {
+      return res.status(401).json({ success: false, error: '当前密码错误' });
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ success: false, error: '新密码至少6位' });
+    }
+
+    db.prepare('UPDATE users SET password = ? WHERE id = ?').run(newPassword, admin.id);
+    
+    logAction({
+      level: 'SECURITY',
+      action: 'ADMIN_PASSWORD_CHANGE',
+      details: 'Super Admin changed their password',
+      success: true
+    });
+
+    res.json({ success: true });
+  });
+
   app.get('/api/admin/families', (req, res) => {
     const fams = db.prepare("SELECT * FROM families").all();
     const users = db.prepare("SELECT id, name, role, parentId, familyId, points FROM users").all();

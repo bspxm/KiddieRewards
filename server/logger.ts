@@ -2,8 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const LOGS_ROOT = path.join(__dirname, 'logs');
+const LOGS_ROOT = path.join(process.cwd(), 'logs');
 
 export interface LogEntry {
   timestamp: string;
