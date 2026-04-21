@@ -35,7 +35,9 @@ import {
   Trash2,
   Edit2,
   Clock,
-  Calendar
+  Calendar,
+  FileSearch,
+  Activity
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { io, Socket } from 'socket.io-client';
@@ -205,6 +207,12 @@ const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
   const [loading, setLoading] = useState(true);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  
+  const [activeTab, setActiveTab] = useState<'families' | 'logs'>('families');
+  const [logs, setLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logFilter, setLogFilter] = useState({ year: new Date().getFullYear().toString(), month: (new Date().getMonth() + 1).toString().padStart(2, '0') });
 
   const fetchFamilies = async () => {
     try {
@@ -223,9 +231,23 @@ const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
     }
   };
 
+  const fetchLogs = async () => {
+    setLogsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/logs?year=${logFilter.year}&month=${logFilter.month}`);
+      const data = await res.json();
+      setLogs(data);
+    } catch (e) {
+      console.error("Fetch Logs Error:", e);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetchFamilies();
-  }, []);
+    if (activeTab === 'families') fetchFamilies();
+    if (activeTab === 'logs') fetchLogs();
+  }, [activeTab, logFilter]);
 
   const executeDeleteFamily = async (id: string) => {
     setDeleteError(null);
@@ -244,130 +266,292 @@ const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <nav className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-brand rounded-xl flex items-center justify-center text-white">
-            <LayoutDashboard size={24} />
+    <div className="flex flex-col min-h-screen">
+      {/* Sub-header with Tabs */}
+      <div className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-30 overflow-x-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2 sm:gap-6 w-full sm:w-auto overflow-x-auto no-scrollbar">
+            <button 
+              onClick={() => setActiveTab('families')}
+              className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 rounded-2xl font-black text-xs sm:text-sm transition-all whitespace-nowrap ${activeTab === 'families' ? 'bg-brand text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}
+            >
+              <LayoutDashboard size={18} />
+              家庭管理
+            </button>
+            <button 
+              onClick={() => setActiveTab('logs')}
+              className={`flex items-center gap-2 px-4 sm:px-6 py-2.5 rounded-2xl font-black text-xs sm:text-sm transition-all whitespace-nowrap ${activeTab === 'logs' ? 'bg-brand text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}
+            >
+              <FileSearch size={18} />
+              系统日志
+            </button>
           </div>
-          <div>
-            <h1 className="text-xl font-black text-gray-900 leading-none">系统总管</h1>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">全局管理中心</p>
+          <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 rounded-2xl border border-gray-100 shrink-0">
+             <ShieldAlert size={14} className="text-brand opacity-50" />
+             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap">系统安全监控已开启</span>
           </div>
         </div>
-        <button onClick={onLogout} className="flex items-center gap-2 text-gray-500 hover:text-red-500 font-bold transition-all">
-          <LogOut size={18} />
-          退出登录
-        </button>
-      </nav>
+      </div>
 
       <main className="flex-1 p-8 max-w-7xl mx-auto w-full">
-        <header className="mb-10">
-          <h2 className="text-4xl font-black text-gray-900 tracking-tight">所有家庭概览</h2>
-          <p className="text-gray-500 mt-2">当前共管理 {families.length} 个活跃中心家庭</p>
-        </header>
+        {activeTab === 'families' ? (
+          <>
+            <header className="mb-10 flex items-center justify-between">
+              <div>
+                <h2 className="text-4xl font-black text-gray-900 tracking-tight">所有家庭概览</h2>
+                <p className="text-gray-500 mt-2">当前共管理 {families.length} 个活跃中心家庭</p>
+              </div>
+            </header>
 
-        {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-4 border-brand border-t-transparent"></div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {families.map(f => (
-              <motion.div 
-                key={f.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-[2.5rem] border-2 border-transparent hover:border-brand-light shadow-sm hover:shadow-xl transition-all overflow-hidden group"
-              >
-                <div className="bg-brand-light p-8 flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-brand shadow-sm">
-                      <Users size={28} />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-black text-gray-900 leading-tight">{f.name}</h3>
-                      <p className="text-xs font-bold text-brand-light uppercase tracking-widest mt-1">家庭 ID: {f.id}</p>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => setConfirmDeleteId(f.id)}
-                    className="w-10 h-10 bg-white/50 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded-full flex items-center justify-center transition-all opacity-0 group-hover:opacity-100"
+            {loading ? (
+              <div className="flex items-center justify-center h-64">
+                <div className="animate-spin rounded-full h-12 w-12 border-4 border-brand border-t-transparent"></div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {families.map(f => (
+                  <motion.div 
+                    key={f.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white rounded-[2.5rem] border-2 border-transparent hover:border-brand-light shadow-sm hover:shadow-xl transition-all overflow-hidden group"
                   >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-
-                <div className="p-8 space-y-6">
-                  <div className="flex justify-between items-center bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-1.5 text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                        <Calendar size={12} />
-                        注册时间
-                      </div>
-                      <span className="text-xs font-bold text-gray-700">
-                        {f.createdAt ? new Date(f.createdAt).toLocaleDateString() : '未知'}
-                      </span>
-                    </div>
-                    <div className="w-px h-8 bg-gray-200"></div>
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-1.5 text-[10px] font-black text-brand uppercase tracking-widest">
-                        <Clock size={12} />
-                        最后活跃
-                      </div>
-                      <span className="text-xs font-bold text-gray-700">
-                        {f.lastActiveAt ? new Date(f.lastActiveAt).toLocaleString() : '未知'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">家长账号</h4>
-                    <div className="flex flex-wrap gap-2 mb-6">
-                      {f.parents.map((p: any) => (
-                        <div key={p.id} className="bg-brand-light/30 rounded-full px-3 py-1 flex items-center gap-2 border border-brand/10">
-                          <User size={12} className="text-brand" />
-                          <span className="text-xs font-black text-brand">{p.name}</span>
+                    <div className="bg-brand-light p-8 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-brand shadow-sm">
+                          <Users size={28} />
                         </div>
-                      ))}
-                      {f.parents.length === 0 && (
-                        <span className="text-xs text-gray-400 italic">暂无家长</span>
-                      )}
+                        <div>
+                          <h3 className="text-xl font-black text-gray-900 leading-tight">{f.name}</h3>
+                          <p className="text-xs font-bold text-brand-light uppercase tracking-widest mt-1">家庭 ID: {f.id}</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setConfirmDeleteId(f.id)}
+                        className="w-10 h-10 bg-white/50 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded-full flex items-center justify-center transition-all opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 size={18} />
+                      </button>
                     </div>
 
-                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">关联小朋友</h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      {f.children.map((c: any) => (
-                        <div key={c.id} className="bg-gray-50 rounded-2xl p-4 flex flex-col items-center gap-2 border border-gray-100">
-                          <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-brand-light shadow-sm">
-                            <User size={16} />
+                    <div className="p-8 space-y-6">
+                      <div className="flex justify-between items-center bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1.5 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                            <Calendar size={12} />
+                            注册时间
                           </div>
-                          <span className="text-xs font-black text-gray-700">{c.name}</span>
-                          <span className="text-[10px] font-bold text-secondary flex items-center gap-1">
-                            <Star size={10} fill="currentColor" /> {c.points}
+                          <span className="text-xs font-bold text-gray-700">
+                            {f.createdAt ? new Date(f.createdAt).toLocaleDateString() : '未知'}
                           </span>
                         </div>
-                      ))}
-                      {f.children.length === 0 && (
-                        <p className="col-span-full text-center text-xs text-gray-400 py-2 italic font-medium">还没有小朋友</p>
-                      )}
-                    </div>
-                  </div>
+                        <div className="w-px h-8 bg-gray-200"></div>
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1.5 text-[10px] font-black text-brand uppercase tracking-widest">
+                            <Clock size={12} />
+                            最后活跃
+                          </div>
+                          <span className="text-xs font-bold text-gray-700">
+                            {f.lastActiveAt ? new Date(f.lastActiveAt).toLocaleString() : '未知'}
+                          </span>
+                        </div>
+                      </div>
 
-                  <div className="pt-4 border-t border-gray-50 flex items-center justify-between">
-                    <div className="flex -space-x-2">
-                       {[1,2,3].map(i => (
-                         <div key={i} className="w-8 h-8 rounded-full bg-white border-2 border-gray-50 flex items-center justify-center text-[10px] font-bold text-brand-light/30">
-                           {i}
-                         </div>
-                       ))}
+                      <div>
+                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">家长账号</h4>
+                        <div className="flex flex-wrap gap-2 mb-6">
+                          {f.parents.map((p: any) => (
+                            <div key={p.id} className="bg-brand-light/30 rounded-full px-3 py-1 flex items-center gap-2 border border-brand/10">
+                              <User size={12} className="text-brand" />
+                              <span className="text-xs font-black text-brand">{p.name}</span>
+                            </div>
+                          ))}
+                          {f.parents.length === 0 && (
+                            <span className="text-xs text-gray-400 italic">暂无家长</span>
+                          )}
+                        </div>
+
+                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">关联小朋友</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          {f.children.map((c: any) => (
+                            <div key={c.id} className="bg-gray-50 rounded-2xl p-4 flex flex-col items-center gap-2 border border-gray-100">
+                              <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-brand-light shadow-sm">
+                                <User size={16} />
+                              </div>
+                              <span className="text-xs font-black text-gray-700">{c.name}</span>
+                              <span className="text-[10px] font-bold text-secondary flex items-center gap-1">
+                                <Star size={10} fill="currentColor" /> {c.points}
+                              </span>
+                            </div>
+                          ))}
+                          {f.children.length === 0 && (
+                            <p className="col-span-full text-center text-xs text-gray-400 py-2 italic font-medium">还没有小朋友</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-gray-50 flex items-center justify-between">
+                        <div className="flex -space-x-2">
+                           {[1,2,3].map(i => (
+                             <div key={i} className="w-8 h-8 rounded-full bg-white border-2 border-gray-50 flex items-center justify-center text-[10px] font-bold text-brand-light/30">
+                               {i}
+                             </div>
+                           ))}
+                        </div>
+                        <span className="text-xs font-bold text-gray-400">活跃度: 优秀</span>
+                      </div>
                     </div>
-                    <span className="text-xs font-bold text-gray-400">活跃度: 优秀</span>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <header className="mb-10 flex flex-col lg:flex-row lg:items-end justify-between gap-8">
+              <div>
+                <h2 className="text-4xl font-black text-gray-900 tracking-tight">系统操作日志</h2>
+                <p className="text-gray-500 mt-2 font-medium flex items-center gap-2">
+                  <Activity size={16} className="text-brand" />
+                  实时监控系统核心操作与安全性事件
+                </p>
+              </div>
+              
+              <div className="relative">
+                <button 
+                  onClick={() => setShowDatePicker(!showDatePicker)}
+                  className="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border-2 border-gray-100 shadow-sm hover:border-brand transition-all group"
+                >
+                  <Calendar size={18} className="text-brand" />
+                  <div className="flex flex-col items-start leading-none">
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">选择日志时间</span>
+                    <span className="text-sm font-black text-gray-900">{logFilter.year}年 {parseInt(logFilter.month)}月</span>
                   </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
+                  <ChevronRight size={16} className={`text-gray-400 transition-transform ${showDatePicker ? 'rotate-90' : ''}`} />
+                </button>
+
+                <AnimatePresence>
+                  {showDatePicker && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute right-0 mt-3 w-80 bg-white border border-gray-100 rounded-[2.5rem] shadow-2xl p-6 z-[60]"
+                    >
+                      {/* Year Selection in Picker */}
+                      <div className="flex items-center justify-between mb-6 bg-gray-50 p-1.5 rounded-2xl">
+                        {[2024, 2025, 2026].map(y => (
+                          <button
+                            key={y}
+                            onClick={() => setLogFilter({...logFilter, year: y.toString()})}
+                            className={`flex-1 py-2 rounded-xl text-xs font-black transition-all ${
+                              logFilter.year === y.toString() 
+                              ? 'bg-brand text-white shadow-md' 
+                              : 'text-gray-400 hover:text-gray-600'
+                            }`}
+                          >
+                            {y}年
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Month Grid */}
+                      <div className="grid grid-cols-3 gap-2">
+                        {Array.from({length: 12}).map((_, i) => {
+                          const m = (i+1).toString().padStart(2, '0');
+                          const isSelected = logFilter.month === m;
+                          return (
+                            <button
+                              key={m}
+                              onClick={() => {
+                                setLogFilter({...logFilter, month: m});
+                                setShowDatePicker(false);
+                              }}
+                              className={`py-3 rounded-2xl text-xs font-black transition-all border-2 ${
+                                isSelected 
+                                ? 'bg-brand/5 border-brand text-brand shadow-sm' 
+                                : 'bg-white border-transparent text-gray-400 hover:bg-gray-50 hover:text-gray-700'
+                              }`}
+                            >
+                              {i+1}月
+                            </button>
+                          );
+                        })}
+                      </div>
+                      
+                      <div className="mt-6 pt-4 border-t border-gray-50 flex items-center justify-center">
+                        <p className="text-[10px] font-bold text-gray-300">请选择需要查看的月份</p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </header>
+
+            <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-gray-400">时间</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-gray-400">级别</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-gray-400">动作</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-gray-400">用户/IP</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-gray-400">详情</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-gray-400">结果</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 font-mono">
+                    {logsLoading ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-20 text-center">
+                          <div className="animate-spin rounded-full h-8 w-8 border-2 border-brand border-t-transparent mx-auto"></div>
+                        </td>
+                      </tr>
+                    ) : logs.length > 0 ? (
+                      logs.map((log, i) => (
+                        <tr key={i} className="hover:bg-gray-50/50 transition-colors">
+                          <td className="px-6 py-4 text-[10px] text-gray-500 whitespace-nowrap">
+                            {new Date(log.timestamp).toLocaleString(undefined, { hour12: false })}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-black tracking-widest ${
+                              log.level === 'SECURITY' ? 'bg-purple-100 text-purple-600' :
+                              log.level === 'ERROR' ? 'bg-red-100 text-red-600' :
+                              log.level === 'WARN' ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-600'
+                            }`}>
+                              {log.level}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-xs font-black text-gray-800 whitespace-nowrap">{log.action}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col min-w-[100px]">
+                              <span className="text-[10px] font-black text-gray-700 truncate">{log.userName || 'System'}</span>
+                              <span className="text-[9px] text-gray-400">{log.ip || '-'}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-xs text-gray-500 max-w-xs break-words">
+                            {log.details}
+                          </td>
+                          <td className="px-6 py-4">
+                            {log.success ? (
+                              <CheckCircle size={14} className="text-green-500" />
+                            ) : (
+                              <X size={14} className="text-red-500" />
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-20 text-center text-gray-300 font-bold italic">该月份暂无日志记录</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
         )}
       </main>
 
@@ -2727,7 +2911,7 @@ export default function App() {
 
   if (currentUser.role === 'admin') {
     return (
-      <div className={`min-h-screen theme-transition ${theme !== 'default' ? `theme-${theme}` : ''}`}>
+      <div className={`min-h-screen theme-transition flex flex-col ${theme !== 'default' ? `theme-${theme}` : ''}`}>
         <Navbar 
           user={currentUser} 
           socket={socket} 
@@ -2735,7 +2919,9 @@ export default function App() {
           onSetTheme={setTheme}
           currentTheme={theme}
         />
-        <SuperAdminView onLogout={handleLogout} />
+        <div className="flex-1 overflow-auto bg-gray-50 pt-20">
+          <SuperAdminView onLogout={handleLogout} />
+        </div>
       </div>
     );
   }

@@ -5,9 +5,43 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import { logAction, getLogs } from './server/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = new Database('kiddie_rewards.db');
+
+// In-memory brute force protection
+const loginFailures = new Map<string, { attempts: number, lastAttempt: number }>();
+const MAX_ATTEMPTS = 5;
+const COOLDOWN_PERIOD = 10 * 60 * 1000; // 10 minutes
+
+function checkBruteForce(key: string): { blocked: boolean; remaining?: number } {
+  const record = loginFailures.get(key);
+  if (!record) return { blocked: false };
+  
+  if (record.attempts >= MAX_ATTEMPTS) {
+    const elapsed = Date.now() - record.lastAttempt;
+    if (elapsed < COOLDOWN_PERIOD) {
+      return { blocked: true, remaining: COOLDOWN_PERIOD - elapsed };
+    } else {
+      // Cooldown expired, reset
+      loginFailures.delete(key);
+      return { blocked: false };
+    }
+  }
+  return { blocked: false };
+}
+
+function recordFailure(key: string) {
+  const record = loginFailures.get(key) || { attempts: 0, lastAttempt: 0 };
+  record.attempts += 1;
+  record.lastAttempt = Date.now();
+  loginFailures.set(key, record);
+}
+
+function recordSuccess(key: string) {
+  loginFailures.delete(key);
+}
 
 // Initialize Database Tables
 db.exec(`
@@ -217,14 +251,49 @@ async function startServer() {
   // Generalized Login supporting User@Family
   app.post('/api/login', (req, res) => {
     const { name, password } = req.body;
+    const ip = req.ip;
+    
+    const clientKey = `${ip}:${name}`;
+    const bfStatus = checkBruteForce(clientKey);
+    if (bfStatus.blocked) {
+      const minutes = Math.ceil(bfStatus.remaining! / 60000);
+      logAction({
+        level: 'SECURITY',
+        action: 'LOGIN_BLOCKED',
+        details: `Brute force attempt detected for ${name} from ${ip}`,
+        success: false,
+        ip
+      });
+      return res.status(429).json({ success: false, message: `登录尝试过多，请在 ${minutes} 分钟后再试` });
+    }
+
     console.log(`[AUTH DEBUG] Login attempt: [${name}]`);
     
     // 1. Super Admin check
     if (name.toLowerCase() === 'admin') {
       const admin = db.prepare("SELECT * FROM users WHERE role = 'admin' AND name = 'admin'").get() as any;
       if (admin && admin.password === password) {
+        recordSuccess(clientKey);
+        logAction({
+          level: 'INFO',
+          action: 'LOGIN_SUCCESS',
+          userId: admin.id,
+          userName: admin.name,
+          details: 'Super Admin login success',
+          success: true,
+          ip
+        });
         return res.json({ success: true, user: { id: admin.id, name: admin.name, role: admin.role } });
       }
+      recordFailure(clientKey);
+      logAction({
+        level: 'WARN',
+        action: 'LOGIN_FAILED',
+        userName: 'admin',
+        details: 'Admin login failed - incorrect password',
+        success: false,
+        ip
+      });
       return res.status(401).json({ success: false, message: '管理员密码错误' });
     }
 
@@ -238,6 +307,14 @@ async function startServer() {
     // Find family
     const family = db.prepare("SELECT id FROM families WHERE LOWER(name) = LOWER(?)").get(familyName) as any;
     if (!family) {
+      logAction({
+        level: 'WARN',
+        action: 'LOGIN_FAILED',
+        userName: name,
+        details: `Family not found: ${familyName}`,
+        success: false,
+        ip
+      });
       return res.status(404).json({ success: false, message: `找不到家庭: ${familyName}` });
     }
 
@@ -245,18 +322,49 @@ async function startServer() {
     const user = db.prepare("SELECT * FROM users WHERE LOWER(name) = LOWER(?) AND familyId = ?").get(username, family.id) as any;
     
     if (!user) {
+      recordFailure(clientKey);
+      logAction({
+        level: 'WARN',
+        action: 'LOGIN_FAILED',
+        userName: name,
+        familyId: family.id,
+        details: `User not found in family: ${username}`,
+        success: false,
+        ip
+      });
       return res.status(401).json({ success: false, message: '用户名不存在' });
     }
 
     if (user.password !== password) {
+      recordFailure(clientKey);
+      logAction({
+        level: 'WARN',
+        action: 'LOGIN_FAILED',
+        userId: user.id,
+        userName: name,
+        familyId: family.id,
+        details: `Incorrect password for user ${username}`,
+        success: false,
+        ip
+      });
       return res.status(401).json({ success: false, message: '密码错误' });
     }
 
+    recordSuccess(clientKey);
     try {
       db.prepare('UPDATE families SET lastActiveAt = ? WHERE id = ?').run(Date.now(), family.id);
     } catch(e) {}
 
-    console.log(`[AUTH DEBUG] Login successful: [${name}]`);
+    logAction({
+      level: 'INFO',
+      action: 'LOGIN_SUCCESS',
+      userId: user.id,
+      userName: name,
+      familyId: family.id,
+      details: `User ${name} logged in successfully`,
+      success: true,
+      ip
+    });
     res.json({ success: true, user: { id: user.id, name: user.name, role: user.role, parentId: user.parentId, familyId: user.familyId } });
   });
 
@@ -320,11 +428,34 @@ async function startServer() {
       });
       
       trx();
-      console.log(`[ADMIN] Successfully deleted family: ${familyId}`);
+      logAction({
+        level: 'SECURITY',
+        action: 'DELETE_FAMILY',
+        familyId,
+        details: `Super Admin deleted family ${familyId}`,
+        success: true
+      });
       res.json({ success: true });
     } catch (e) {
-      console.error(`[ADMIN] Delete Family Error (${familyId}):`, e);
+      logAction({
+        level: 'ERROR',
+        action: 'DELETE_FAMILY',
+        familyId,
+        details: `Error deleting family: ${(e as Error).message}`,
+        success: false
+      });
       res.status(500).json({ success: false, error: (e as Error).message });
+    }
+  });
+
+  // Admin Logs API
+  app.get('/api/admin/logs', (req, res) => {
+    const { year, month } = req.query;
+    try {
+      const logs = getLogs(year as string, month as string);
+      res.json(logs.slice(0, 500)); // Limit to first 500 logs for UI performance
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
     }
   });
 
@@ -384,9 +515,22 @@ async function startServer() {
         db.prepare('INSERT INTO users (id, name, role, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?)').run(pId, adminName, 'parent', 0, password || '123456', famId);
       });
       trx();
+      logAction({
+        level: 'INFO',
+        action: 'REGISTER_FAMILY',
+        familyId: famId,
+        userName: adminName,
+        details: `New family registered: ${familyName}`,
+        success: true
+      });
       res.json({ success: true, user: { id: pId, name: adminName, role: 'parent', familyId: famId } });
     } catch (e) {
-      console.error(e);
+      logAction({
+        level: 'ERROR',
+        action: 'REGISTER_FAMILY',
+        details: `Registration failed for ${familyName}: ${(e as Error).message}`,
+        success: false
+      });
       res.status(500).json({ success: false, message: '注册失败，可能家庭名称已存在' });
     }
   });
@@ -398,9 +542,25 @@ async function startServer() {
     try {
       db.prepare('INSERT INTO users (id, name, role, parentId, points, familyId, password) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(id, name, role || 'child', parentId, 0, parent.familyId, password || '123456');
+      
+      logAction({
+        level: 'INFO',
+        action: 'ADD_MEMBER',
+        userId: parentId,
+        userName: parentId,
+        familyId: parent.familyId,
+        details: `Added new member: ${name} (${role || 'child'})`,
+        success: true
+      });
       res.json({ success: true, user: { id, name, role: role || 'child', parentId, familyId: parent.familyId } });
     } catch (e) {
-      console.error(e);
+      logAction({
+        level: 'ERROR',
+        action: 'ADD_MEMBER',
+        userId: parentId,
+        details: `Failed to add member ${name}: ${(e as Error).message}`,
+        success: false
+      });
       res.status(500).json({ success: false, message: '添加失败' });
     }
   });
@@ -433,9 +593,22 @@ async function startServer() {
         db.prepare('DELETE FROM users WHERE id = ?').run(userId);
       });
       trx();
+      logAction({
+        level: 'SECURITY',
+        action: 'DELETE_USER',
+        userId,
+        details: `User deleted: ${userId}`,
+        success: true
+      });
       res.json({ success: true });
     } catch (e) {
-      console.error('Delete user error:', e);
+      logAction({
+        level: 'ERROR',
+        action: 'DELETE_USER',
+        userId,
+        details: `Failed to delete user: ${(e as Error).message}`,
+        success: false
+      });
       res.status(500).json({ success: false, message: '删除成员失败: ' + (e instanceof Error ? e.message : '未知错误') });
     }
   });
@@ -463,9 +636,28 @@ async function startServer() {
   app.post('/api/rules', (req, res) => {
     const { id, parentId, title, points, icon, description, isRepeating, targetChildId } = req.body;
     const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(parentId) as any;
-    db.prepare('INSERT INTO reward_rules (id, parentId, title, points, icon, description, familyId, isRepeating, targetChildId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, parentId, title, points, icon, description, user?.familyId, isRepeating ? 1 : 0, targetChildId || 'all');
-    res.status(201).json({ success: true });
+    try {
+      db.prepare('INSERT INTO reward_rules (id, parentId, title, points, icon, description, familyId, isRepeating, targetChildId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, parentId, title, points, icon, description, user?.familyId, isRepeating ? 1 : 0, targetChildId || 'all');
+      logAction({
+        level: 'INFO',
+        action: 'CREATE_RULE',
+        userId: parentId,
+        familyId: user?.familyId,
+        details: `Created rule: ${title}`,
+        success: true
+      });
+      res.status(201).json({ success: true });
+    } catch (e) {
+      logAction({
+        level: 'ERROR',
+        action: 'CREATE_RULE',
+        userId: parentId,
+        details: `Failed to create rule: ${(e as Error).message}`,
+        success: false
+      });
+      res.status(500).json({ success: false, message: '创建失败' });
+    }
   });
 
   app.put('/api/rules/:id', (req, res) => {
@@ -564,35 +756,71 @@ async function startServer() {
     const historyId = Math.random().toString(36).substr(2, 9);
     const timestamp = Date.now();
 
-    const trx = db.transaction(() => {
-      db.prepare("UPDATE task_submissions SET status = 'approved' WHERE id = ?").run(id);
-      db.prepare('UPDATE users SET points = points + ? WHERE id = ?').run(points, childId);
-      db.prepare('INSERT INTO point_history (id, childId, amount, reason, timestamp, type) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(historyId, childId, points, title, timestamp, 'earn');
-      
-      const notifId = Math.random().toString(36).substr(2, 9);
-      db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(notifId, childId, '任务已通过！', `你的任务"${title}"已获得 ${points} 星币奖励！继续加油哦！`, 'success', timestamp);
-    });
-    trx();
+    try {
+      const trx = db.transaction(() => {
+        db.prepare("UPDATE task_submissions SET status = 'approved' WHERE id = ?").run(id);
+        db.prepare('UPDATE users SET points = points + ? WHERE id = ?').run(points, childId);
+        db.prepare('INSERT INTO point_history (id, childId, amount, reason, timestamp, type) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(historyId, childId, points, title, timestamp, 'earn');
+        
+        const notifId = Math.random().toString(36).substr(2, 9);
+        db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(notifId, childId, '任务已通过！', `你的任务"${title}"已获得 ${points} 星币奖励！继续加油哦！`, 'success', timestamp);
+      });
+      trx();
 
-    io.emit('task_approved', { childId, title, points });
-    io.emit('new_notification', { userId: childId });
-    res.json({ success: true });
+      logAction({
+        level: 'INFO',
+        action: 'TASK_APPROVED',
+        userId: childId,
+        details: `Approved task: ${title} (${points} pts) for ${childId}`,
+        success: true
+      });
+
+      io.emit('task_approved', { childId, title, points });
+      io.emit('new_notification', { userId: childId });
+      res.json({ success: true });
+    } catch (e) {
+      logAction({
+        level: 'ERROR',
+        action: 'TASK_APPROVED',
+        details: `Failed to approve task ${id}: ${(e as Error).message}`,
+        success: false
+      });
+      res.status(500).json({ success: false, error: (e as Error).message });
+    }
   });
 
   app.post('/api/tasks/reject', (req, res) => {
     const { id, childId, title, rejectionReason } = req.body;
     const timestamp = Date.now();
-    db.prepare("UPDATE task_submissions SET status = 'rejected', rejectionReason = ? WHERE id = ?").run(rejectionReason, id);
-    
-    const notifId = Math.random().toString(36).substr(2, 9);
-    db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(notifId, childId, '任务需要调整', `任务"${title}"暂时没通过。爸爸妈妈说：${rejectionReason}`, 'error', timestamp);
+    try {
+      db.prepare("UPDATE task_submissions SET status = 'rejected', rejectionReason = ? WHERE id = ?").run(rejectionReason, id);
+      
+      const notifId = Math.random().toString(36).substr(2, 9);
+      db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(notifId, childId, '任务需要调整', `任务"${title}"暂时没通过。爸爸妈妈说：${rejectionReason}`, 'error', timestamp);
 
-    io.emit('task_rejected', { childId, title, rejectionReason });
-    io.emit('new_notification', { userId: childId });
-    res.json({ success: true });
+      logAction({
+        level: 'INFO',
+        action: 'TASK_REJECTED',
+        userId: childId,
+        details: `Rejected task: ${title} for ${childId}. Reason: ${rejectionReason}`,
+        success: true
+      });
+
+      io.emit('task_rejected', { childId, title, rejectionReason });
+      io.emit('new_notification', { userId: childId });
+      res.json({ success: true });
+    } catch (e) {
+      logAction({
+        level: 'ERROR',
+        action: 'TASK_REJECTED',
+        details: `Failed to reject task ${id}: ${(e as Error).message}`,
+        success: false
+      });
+      res.status(500).json({ success: false, error: (e as Error).message });
+    }
   });
 
   app.post('/api/redemptions', (req, res) => {
@@ -623,16 +851,34 @@ async function startServer() {
     const historyId = Math.random().toString(36).substr(2, 9);
     const timestamp = Date.now();
 
-    const trx = db.transaction(() => {
-      db.prepare("UPDATE redemption_records SET status = 'approved' WHERE id = ?").run(id);
-      db.prepare('UPDATE users SET points = points - ? WHERE id = ?').run(pointsCost, childId);
-      db.prepare('INSERT INTO point_history (id, childId, amount, reason, timestamp, type) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(historyId, childId, pointsCost, `兑换奖励: ${rewardTitle || '未知奖励'}`, timestamp, 'spend');
-    });
-    trx();
+    try {
+      const trx = db.transaction(() => {
+        db.prepare("UPDATE redemption_records SET status = 'approved' WHERE id = ?").run(id);
+        db.prepare('UPDATE users SET points = points - ? WHERE id = ?').run(pointsCost, childId);
+        db.prepare('INSERT INTO point_history (id, childId, amount, reason, timestamp, type) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(historyId, childId, pointsCost, `兑换奖励: ${rewardTitle || '未知奖励'}`, timestamp, 'spend');
+      });
+      trx();
 
-    io.emit('redemption_approved', { childId, rewardId });
-    res.json({ success: true });
+      logAction({
+        level: 'INFO',
+        action: 'REDEMPTION_APPROVED',
+        userId: childId,
+        details: `Approved redemption: ${rewardTitle} (${pointsCost} pts) for ${childId}`,
+        success: true
+      });
+
+      io.emit('redemption_approved', { childId, rewardId });
+      res.json({ success: true });
+    } catch (e) {
+      logAction({
+        level: 'ERROR',
+        action: 'REDEMPTION_APPROVED',
+        details: `Failed to approve redemption ${id}: ${(e as Error).message}`,
+        success: false
+      });
+      res.status(500).json({ success: false, error: (e as Error).message });
+    }
   });
 
   app.get('/api/stats/:childId', (req, res) => {
