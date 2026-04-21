@@ -37,7 +37,8 @@ db.exec(`
     description TEXT,
     points INTEGER NOT NULL,
     icon TEXT,
-    isRepeating INTEGER DEFAULT 1
+    isRepeating INTEGER DEFAULT 1,
+    targetChildId TEXT DEFAULT 'all'
   );
 
   CREATE TABLE IF NOT EXISTS rewards (
@@ -47,7 +48,8 @@ db.exec(`
     title TEXT NOT NULL,
     description TEXT,
     pointsRequired INTEGER NOT NULL,
-    image TEXT
+    image TEXT,
+    targetChildId TEXT DEFAULT 'all'
   );
 
   CREATE TABLE IF NOT EXISTS redemption_records (
@@ -102,7 +104,9 @@ db.exec(`
 // Migrations
 try { db.exec("ALTER TABLE reward_rules ADD COLUMN familyId TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE reward_rules ADD COLUMN isRepeating INTEGER DEFAULT 1"); } catch(e) {}
+try { db.exec("ALTER TABLE reward_rules ADD COLUMN targetChildId TEXT DEFAULT 'all'"); } catch(e) {}
 try { db.exec("ALTER TABLE rewards ADD COLUMN familyId TEXT"); } catch(e) {}
+try { db.exec("ALTER TABLE rewards ADD COLUMN targetChildId TEXT DEFAULT 'all'"); } catch(e) {}
 try { db.exec("ALTER TABLE redemption_records ADD COLUMN familyId TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE task_submissions ADD COLUMN familyId TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE families ADD COLUMN createdAt INTEGER"); } catch(e) {}
@@ -416,22 +420,29 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/users/child/:id', (req, res) => {
-    const childId = req.params.id;
+  // Generic user deletion (child or parent)
+  app.delete('/api/users/:id', (req, res) => {
+    const userId = req.params.id;
     try {
       const trx = db.transaction(() => {
-        db.prepare('DELETE FROM redemption_records WHERE childId = ?').run(childId);
-        db.prepare('DELETE FROM point_history WHERE childId = ?').run(childId);
-        db.prepare('DELETE FROM task_submissions WHERE childId = ?').run(childId);
-        db.prepare('DELETE FROM notifications WHERE userId = ?').run(childId);
-        db.prepare('DELETE FROM users WHERE id = ?').run(childId);
+        // Cleanup all possible related records
+        db.prepare('DELETE FROM redemption_records WHERE childId = ?').run(userId);
+        db.prepare('DELETE FROM point_history WHERE childId = ?').run(userId);
+        db.prepare('DELETE FROM task_submissions WHERE childId = ?').run(userId);
+        db.prepare('DELETE FROM notifications WHERE userId = ?').run(userId);
+        db.prepare('DELETE FROM users WHERE id = ?').run(userId);
       });
       trx();
       res.json({ success: true });
     } catch (e) {
-      console.error(e);
-      res.status(500).json({ success: false, message: '删除失败' });
+      console.error('Delete user error:', e);
+      res.status(500).json({ success: false, message: '删除成员失败: ' + (e instanceof Error ? e.message : '未知错误') });
     }
+  });
+
+  // Keep old endpoint for compatibility if needed, but just point to the new logic
+  app.delete('/api/users/child/:id', (req, res) => {
+    res.redirect(307, `/api/users/${req.params.id}`);
   });
 
   app.get('/api/users/:id', (req, res) => {
@@ -440,24 +451,27 @@ async function startServer() {
   });
 
   app.get('/api/rules/:uid', (req, res) => {
-    const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(req.params.uid) as any;
+    const user = db.prepare('SELECT role, familyId FROM users WHERE id = ?').get(req.params.uid) as any;
     if (!user) return res.json([]);
-    const rules = db.prepare('SELECT * FROM reward_rules WHERE familyId = ? OR parentId = ?').all(user.familyId, req.params.uid);
+    let rules = db.prepare('SELECT * FROM reward_rules WHERE familyId = ? OR parentId = ?').all(user.familyId, req.params.uid);
+    if (user.role === 'child') {
+      rules = rules.filter((r: any) => !r.targetChildId || r.targetChildId === 'all' || r.targetChildId === req.params.uid);
+    }
     res.json(rules.map((r: any) => ({ ...r, isRepeating: !!r.isRepeating })));
   });
 
   app.post('/api/rules', (req, res) => {
-    const { id, parentId, title, points, icon, description, isRepeating } = req.body;
+    const { id, parentId, title, points, icon, description, isRepeating, targetChildId } = req.body;
     const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(parentId) as any;
-    db.prepare('INSERT INTO reward_rules (id, parentId, title, points, icon, description, familyId, isRepeating) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, parentId, title, points, icon, description, user?.familyId, isRepeating ? 1 : 0);
+    db.prepare('INSERT INTO reward_rules (id, parentId, title, points, icon, description, familyId, isRepeating, targetChildId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, parentId, title, points, icon, description, user?.familyId, isRepeating ? 1 : 0, targetChildId || 'all');
     res.status(201).json({ success: true });
   });
 
   app.put('/api/rules/:id', (req, res) => {
-    const { title, points, icon, description, isRepeating } = req.body;
-    db.prepare('UPDATE reward_rules SET title = ?, points = ?, icon = ?, description = ?, isRepeating = ? WHERE id = ?')
-      .run(title, points, icon, description, isRepeating ? 1 : 0, req.params.id);
+    const { title, points, icon, description, isRepeating, targetChildId } = req.body;
+    db.prepare('UPDATE reward_rules SET title = ?, points = ?, icon = ?, description = ?, isRepeating = ?, targetChildId = ? WHERE id = ?')
+      .run(title, points, icon, description, isRepeating ? 1 : 0, targetChildId || 'all', req.params.id);
     res.json({ success: true });
   });
 
@@ -467,24 +481,27 @@ async function startServer() {
   });
 
   app.get('/api/rewards/:uid', (req, res) => {
-    const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(req.params.uid) as any;
+    const user = db.prepare('SELECT role, familyId FROM users WHERE id = ?').get(req.params.uid) as any;
     if (!user) return res.json([]);
-    const rewards = db.prepare('SELECT * FROM rewards WHERE familyId = ? OR parentId = ?').all(user.familyId, req.params.uid);
+    let rewards = db.prepare('SELECT * FROM rewards WHERE familyId = ? OR parentId = ?').all(user.familyId, req.params.uid);
+    if (user.role === 'child') {
+      rewards = rewards.filter((r: any) => !r.targetChildId || r.targetChildId === 'all' || r.targetChildId === req.params.uid);
+    }
     res.json(rewards);
   });
 
   app.post('/api/rewards', (req, res) => {
-    const { id, parentId, title, pointsRequired, description } = req.body;
+    const { id, parentId, title, pointsRequired, description, targetChildId } = req.body;
     const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(parentId) as any;
-    db.prepare('INSERT INTO rewards (id, parentId, title, pointsRequired, description, familyId) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(id, parentId, title, pointsRequired, description, user?.familyId);
+    db.prepare('INSERT INTO rewards (id, parentId, title, pointsRequired, description, familyId, targetChildId) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, parentId, title, pointsRequired, description, user?.familyId, targetChildId || 'all');
     res.status(201).json({ success: true });
   });
 
   app.put('/api/rewards/:id', (req, res) => {
-    const { title, pointsRequired, description } = req.body;
-    db.prepare('UPDATE rewards SET title = ?, pointsRequired = ?, description = ? WHERE id = ?')
-      .run(title, pointsRequired, description, req.params.id);
+    const { title, pointsRequired, description, targetChildId } = req.body;
+    db.prepare('UPDATE rewards SET title = ?, pointsRequired = ?, description = ?, targetChildId = ? WHERE id = ?')
+      .run(title, pointsRequired, description, targetChildId || 'all', req.params.id);
     res.json({ success: true });
   });
 

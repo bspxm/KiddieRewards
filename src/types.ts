@@ -23,6 +23,7 @@ export interface RewardRule {
   points: number; // Positive for earning, Negative for "cost" (if used as penalty)
   icon?: string;
   isRepeating: boolean; // true for repeating, false for one-time
+  targetChildId?: string; // 'all' or specific child id
 }
 
 export interface RewardItem {
@@ -33,6 +34,7 @@ export interface RewardItem {
   pointsRequired: number;
   stock?: number;
   image?: string;
+  targetChildId?: string; // 'all' or specific child id
 }
 
 export interface RedemptionRecord {

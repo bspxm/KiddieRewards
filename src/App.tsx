@@ -433,11 +433,11 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
   const [rewards, setRewards] = useState<RewardItem[]>([]);
   const [pendingTasks, setPendingTasks] = useState<TaskSubmission[]>([]);
   const [showAddReward, setShowAddReward] = useState(false);
-  const [newReward, setNewReward] = useState({ title: '', pointsRequired: 50 });
+  const [newReward, setNewReward] = useState({ title: '', pointsRequired: 50, targetChildId: 'all' });
   const [editingReward, setEditingReward] = useState<RewardItem | null>(null);
 
   const [showAddRule, setShowAddRule] = useState(false);
-  const [newRule, setNewRule] = useState({ title: '', points: 10, description: '', isRepeating: true });
+  const [newRule, setNewRule] = useState({ title: '', points: 10, description: '', isRepeating: true, targetChildId: 'all' });
   const [editingRule, setEditingRule] = useState<RewardRule | null>(null);
   const [taskToReject, setTaskToReject] = useState<TaskSubmission | null>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState('');
@@ -447,6 +447,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
   const [newMemberRole, setNewMemberRole] = useState<'child' | 'parent'>('child');
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [changedPassword, setChangedPassword] = useState('');
+  const [memberToDelete, setMemberToDelete] = useState<UserProfile | null>(null);
   
   const [profileName, setProfileName] = useState(user.name);
   const [profilePassword, setProfilePassword] = useState('');
@@ -461,7 +462,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...newReward, id, parentId: user.id })
     });
-    setNewReward({ title: '', pointsRequired: 50 });
+    setNewReward({ title: '', pointsRequired: 50, targetChildId: 'all' });
     setShowAddReward(false);
     fetchData();
   };
@@ -585,11 +586,24 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
     }
   };
 
-  const deleteChild = async (childId: string) => {
-    if (!confirm('确定要删除这个小朋友吗？所有积分、任务和兑换记录都将被永久清除。')) return;
-    await fetch(`/api/users/child/${childId}`, { method: 'DELETE' });
-    if (selectedChildId === childId) setSelectedChildId(null);
-    fetchData();
+  const executeDeleteMember = async () => {
+    if (!memberToDelete) return;
+    try {
+      const res = await fetch(`/api/users/${memberToDelete.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || '删除失败');
+      }
+      
+      if (selectedChildId === memberToDelete.id) setSelectedChildId(null);
+      fetchData();
+      if (socket) socket.emit('update_data', { parentId: user.id });
+      setMemberToDelete(null);
+    } catch (e) {
+      console.error("Delete Member Error:", e);
+      alert(e instanceof Error ? e.message : '删除失败，请稍后重试');
+    }
   };
 
   const addRule = async () => {
@@ -599,7 +613,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...newRule, id, parentId: user.id })
     });
-    setNewRule({ title: '', points: 10, description: '', isRepeating: true });
+    setNewRule({ title: '', points: 10, description: '', isRepeating: true, targetChildId: 'all' });
     setShowAddRule(false);
     fetchData();
   };
@@ -912,8 +926,15 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
                              <Gift size={32} />
                           </div>
                           <div>
-                             <p className="font-bold text-gray-800">{item.title}</p>
-                             <p className="text-xs text-brand font-bold">需 {item.pointsRequired} 星币</p>
+                             <p className="font-bold text-gray-800 flex items-center gap-2">
+                               {item.title}
+                               {item.targetChildId && item.targetChildId !== 'all' && (
+                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-50 text-purple-600">
+                                   仅限 {children.find(c => c.id === item.targetChildId)?.name || '未知孩子'}
+                                 </span>
+                               )}
+                             </p>
+                             <p className="text-xs text-brand font-bold mt-1">需 {item.pointsRequired} 星币</p>
                           </div>
                        </div>
                        <div className="flex items-center gap-2">
@@ -954,6 +975,38 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
                             onChange={(e) => setNewReward({...newReward, pointsRequired: parseInt(e.target.value)})}
                           />
                         </div>
+                        {children.length > 1 && (
+                          <div>
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">专属适用范围</label>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                onClick={() => setNewReward({...newReward, targetChildId: 'all'})}
+                                className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold transition-all border-2 ${
+                                  (newReward.targetChildId || 'all') === 'all' 
+                                  ? 'bg-brand-light border-brand text-brand shadow-sm' 
+                                  : 'bg-gray-50 border-transparent text-gray-400 hover:text-gray-600'
+                                }`}
+                              >
+                                <Users size={16} />
+                                <span>全家通用</span>
+                              </button>
+                              {children.map(c => (
+                                <button
+                                  key={c.id}
+                                  onClick={() => setNewReward({...newReward, targetChildId: c.id})}
+                                  className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold transition-all border-2 ${
+                                    newReward.targetChildId === c.id 
+                                    ? 'bg-purple-50 border-purple-400 text-purple-600 shadow-sm' 
+                                    : 'bg-gray-50 border-transparent text-gray-400 hover:text-gray-600'
+                                  }`}
+                                >
+                                  <Smile size={16} />
+                                  <span>仅限 {c.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <button 
                           onClick={addReward}
                           className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4"
@@ -993,6 +1046,38 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
                             onChange={(e) => setEditingReward({...editingReward, pointsRequired: parseInt(e.target.value)})}
                           />
                         </div>
+                        {children.length > 1 && (
+                          <div>
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">专属适用范围</label>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                onClick={() => setEditingReward({...editingReward, targetChildId: 'all'})}
+                                className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold transition-all border-2 ${
+                                  (editingReward.targetChildId || 'all') === 'all' 
+                                  ? 'bg-brand-light border-brand text-brand shadow-sm' 
+                                  : 'bg-gray-50 border-transparent text-gray-400 hover:text-gray-600'
+                                }`}
+                              >
+                                <Users size={16} />
+                                <span>全家通用</span>
+                              </button>
+                              {children.map(c => (
+                                <button
+                                  key={c.id}
+                                  onClick={() => setEditingReward({...editingReward, targetChildId: c.id})}
+                                  className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold transition-all border-2 ${
+                                    editingReward.targetChildId === c.id 
+                                    ? 'bg-purple-50 border-purple-400 text-purple-600 shadow-sm' 
+                                    : 'bg-gray-50 border-transparent text-gray-400 hover:text-gray-600'
+                                  }`}
+                                >
+                                  <Smile size={16} />
+                                  <span>仅限 {c.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <button 
                           onClick={updateReward}
                           className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4"
@@ -1164,7 +1249,7 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
                               <Lock size={18} />
                             </button>
                             <button 
-                              onClick={() => deleteChild(m.id)}
+                              onClick={() => setMemberToDelete(m)}
                               className="w-10 h-10 bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded-xl flex items-center justify-center transition-all"
                               title="删除成员"
                             >
@@ -1259,11 +1344,16 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
                            </div>
                            <div>
                               <p className="font-bold text-gray-800">{rule.title}</p>
-                              <div className="flex items-center gap-2 mt-1">
+                              <div className="flex flex-wrap items-center gap-2 mt-1">
                                 <span className="text-[10px] font-black text-brand bg-brand-light px-2 py-0.5 rounded">+{rule.points} 星币</span>
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${rule.isRepeating ? 'bg-blue-50 text-blue-500' : 'bg-orange-50 text-orange-500'}`}>
                                   {rule.isRepeating ? '日常规则' : '特别加分'}
                                 </span>
+                                {rule.targetChildId && rule.targetChildId !== 'all' && (
+                                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-50 text-purple-600">
+                                     仅限 {children.find(c => c.id === rule.targetChildId)?.name || '未知孩子'}
+                                   </span>
+                                )}
                               </div>
                            </div>
                         </div>
@@ -1326,6 +1416,38 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
                             {newRule.isRepeating ? '💡 这类任务适合每天都要做的习惯，完成后还可以继续领。' : '💡 这类任务完成后就会从列表消失，适合偶尔的特别奖励。'}
                           </p>
                         </div>
+                        {children.length > 1 && (
+                          <div>
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">专属适用范围</label>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                onClick={() => setNewRule({...newRule, targetChildId: 'all'})}
+                                className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold transition-all border-2 ${
+                                  (newRule.targetChildId || 'all') === 'all' 
+                                  ? 'bg-brand-light border-brand text-brand shadow-sm' 
+                                  : 'bg-gray-50 border-transparent text-gray-400 hover:text-gray-600'
+                                }`}
+                              >
+                                <Users size={16} />
+                                <span>全家通用</span>
+                              </button>
+                              {children.map(c => (
+                                <button
+                                  key={c.id}
+                                  onClick={() => setNewRule({...newRule, targetChildId: c.id})}
+                                  className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold transition-all border-2 ${
+                                    newRule.targetChildId === c.id 
+                                    ? 'bg-purple-50 border-purple-400 text-purple-600 shadow-sm' 
+                                    : 'bg-gray-50 border-transparent text-gray-400 hover:text-gray-600'
+                                  }`}
+                                >
+                                  <Smile size={16} />
+                                  <span>仅限 {c.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <button 
                           onClick={addRule}
                           className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4"
@@ -1382,6 +1504,38 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
                              </button>
                           </div>
                         </div>
+                        {children.length > 1 && (
+                          <div>
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">专属适用范围</label>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                onClick={() => setEditingRule({...editingRule, targetChildId: 'all'})}
+                                className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold transition-all border-2 ${
+                                  (editingRule.targetChildId || 'all') === 'all' 
+                                  ? 'bg-brand-light border-brand text-brand shadow-sm' 
+                                  : 'bg-gray-50 border-transparent text-gray-400 hover:text-gray-600'
+                                }`}
+                              >
+                                <Users size={16} />
+                                <span>全家通用</span>
+                              </button>
+                              {children.map(c => (
+                                <button
+                                  key={c.id}
+                                  onClick={() => setEditingRule({...editingRule, targetChildId: c.id})}
+                                  className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold transition-all border-2 ${
+                                    editingRule.targetChildId === c.id 
+                                    ? 'bg-purple-50 border-purple-400 text-purple-600 shadow-sm' 
+                                    : 'bg-gray-50 border-transparent text-gray-400 hover:text-gray-600'
+                                  }`}
+                                >
+                                  <Smile size={16} />
+                                  <span>仅限 {c.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <button 
                           onClick={updateRule}
                           className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4"
@@ -1639,6 +1793,48 @@ const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, curre
                     确认修改
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Member Deletion Confirmation Modal */}
+      <AnimatePresence>
+        {memberToDelete && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMemberToDelete(null)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full relative z-10 shadow-2xl text-center">
+              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Trash2 size={40} />
+              </div>
+              <h2 className="text-2xl font-black mb-2 text-gray-900">确定要删除吗？</h2>
+              <div className="text-gray-500 mb-8 font-medium leading-relaxed">
+                正在删除 <span className="text-orange-500 font-bold">{memberToDelete.name}</span>
+                {memberToDelete.role === 'child' ? (
+                  <div className="mt-2 bg-gray-50 rounded-2xl p-4">
+                    <p className="text-sm">该宝宝当前拥有</p>
+                    <p className="text-2xl font-black text-brand">{memberToDelete.points} <span className="text-xs font-bold text-gray-400 font-sans tracking-widest uppercase">星币</span></p>
+                  </div>
+                ) : <span className="text-gray-400"> (家长账号)</span>}
+                <p className="text-xs text-red-400 mt-4 px-4 bg-red-50/50 py-2 rounded-lg inline-block border border-red-100">
+                  ⚠️ 此操作不可逆，所有数据将被永久删除
+                </p>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => setMemberToDelete(null)}
+                  className="py-4 rounded-2xl font-black text-gray-400 hover:bg-gray-50 transition-colors"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={executeDeleteMember}
+                  className="py-4 rounded-2xl bg-red-500 text-white font-black shadow-lg shadow-red-100 hover:bg-red-600 transition-all"
+                >
+                  确定删除
+                </button>
               </div>
             </motion.div>
           </div>
