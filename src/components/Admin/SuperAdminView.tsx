@@ -10,6 +10,9 @@ import {
   X,
   Calendar,
   ChevronRight,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
   Activity,
   Settings,
   Lock,
@@ -28,6 +31,8 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
   const [logs, setLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logFilter, setLogFilter] = useState({ year: new Date().getFullYear().toString(), month: (new Date().getMonth() + 1).toString().padStart(2, '0') });
+  const [currentPage, setCurrentPage] = useState(1);
+  const LOGS_PER_PAGE = 15;
 
   const [passwordForm, setPasswordForm] = useState({ current: '', new: '', confirm: '' });
   const [pwdStatus, setPwdStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error', message?: string }>({ type: 'idle' });
@@ -84,6 +89,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
 
   const fetchLogs = async () => {
     setLogsLoading(true);
+    setCurrentPage(1); // Reset to page 1 on filter change
     try {
       const res = await fetch(`/api/admin/logs?year=${logFilter.year}&month=${logFilter.month}`);
       const data = await res.json();
@@ -94,6 +100,9 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
       setLogsLoading(false);
     }
   };
+
+  const totalPages = Math.ceil(logs.length / LOGS_PER_PAGE);
+  const paginatedLogs = logs.slice((currentPage - 1) * LOGS_PER_PAGE, currentPage * LOGS_PER_PAGE);
 
   useEffect(() => {
     if (activeTab === 'families') fetchFamilies();
@@ -203,13 +212,22 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                       <div>
                         <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-3">成员列表</span>
                         <div className="grid grid-cols-2 gap-2">
+                          {/* Parents */}
+                          {f.parents.map((p: any) => (
+                            <div key={p.id} className="bg-brand/5 px-3 py-2 rounded-xl flex items-center gap-2 border border-brand/10">
+                              <span className="text-[10px] font-black text-brand uppercase tracking-tighter">家长</span>
+                              <span className="text-xs font-black text-gray-700">{p.name}</span>
+                            </div>
+                          ))}
+                          {/* Children */}
                           {f.children.map((c: any) => (
                             <div key={c.id} className="bg-gray-50 px-3 py-2 rounded-xl flex items-center gap-2 border border-gray-100/50">
+                              <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter">孩子</span>
                               <span className="text-xs font-black text-gray-700">{c.name}</span>
                             </div>
                           ))}
-                          {f.children.length === 0 && (
-                            <p className="col-span-full text-center text-xs text-gray-400 py-2 italic font-medium">还没有小朋友</p>
+                          {f.parents.length === 0 && f.children.length === 0 && (
+                            <p className="col-span-full text-center text-xs text-gray-400 py-2 italic font-medium">还没有家庭成员</p>
                           )}
                         </div>
                       </div>
@@ -318,14 +336,14 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                           <div className="animate-spin rounded-full h-8 w-8 border-2 border-brand border-t-transparent mx-auto"></div>
                         </td>
                       </tr>
-                    ) : logs.length > 0 ? (
-                      logs.map((log, i) => (
+                    ) : paginatedLogs.length > 0 ? (
+                      paginatedLogs.map((log, i) => (
                         <tr key={i} className="hover:bg-gray-50/50 transition-colors">
-                          <td className="px-6 py-4 text-[10px] text-gray-500 whitespace-nowrap">
+                          <td className="px-6 py-4 text-sm text-gray-500 whitespace-nowrap">
                             {new Date(log.timestamp).toLocaleString(undefined, { hour12: false })}
                           </td>
                           <td className="px-6 py-4">
-                            <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-black tracking-widest ${
+                            <span className={`px-2 py-0.5 rounded-[4px] text-[11px] font-black tracking-widest ${
                               log.level === 'SECURITY' ? 'bg-purple-100 text-purple-600' :
                               log.level === 'ERROR' ? 'bg-red-100 text-red-600' :
                               log.level === 'WARN' ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-600'
@@ -333,21 +351,21 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                               {log.level}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-xs font-black text-gray-800 whitespace-nowrap">{log.action}</td>
+                          <td className="px-6 py-4 text-sm font-black text-gray-800 whitespace-nowrap">{log.action}</td>
                           <td className="px-6 py-4">
-                            <div className="flex flex-col min-w-[100px]">
-                              <span className="text-[10px] font-black text-gray-700 truncate">{log.userName || 'System'}</span>
-                              <span className="text-[9px] text-gray-400">{log.ip || '-'}</span>
+                            <div className="flex flex-col min-w-[120px]">
+                              <span className="text-sm font-black text-gray-700 truncate">{log.userName || 'System'}</span>
+                              <span className="text-xs text-gray-400">{log.ip || '-'}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-xs text-gray-500 max-w-xs break-words">
+                          <td className="px-6 py-4 text-sm text-gray-600 max-w-xs break-words leading-relaxed">
                             {log.details}
                           </td>
                           <td className="px-6 py-4">
                             {log.success ? (
-                              <CheckCircle size={14} className="text-green-500" />
+                              <CheckCircle size={18} className="text-green-500" />
                             ) : (
-                              <X size={14} className="text-red-500" />
+                              <X size={18} className="text-red-500" />
                             )}
                           </td>
                         </tr>
@@ -367,8 +385,8 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                   <div className="py-20 text-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-2 border-brand border-t-transparent mx-auto"></div>
                   </div>
-                ) : logs.length > 0 ? (
-                  logs.map((log, i) => (
+                ) : paginatedLogs.length > 0 ? (
+                  paginatedLogs.map((log, i) => (
                     <div key={i} className="p-6 space-y-4">
                       <div className="flex items-center justify-between">
                         <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-black tracking-widest ${
@@ -395,8 +413,8 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                       </div>
 
                       <div>
-                        <h4 className="text-sm font-black text-gray-900 mb-1">{log.action}</h4>
-                        <p className="text-xs text-gray-500 font-medium leading-relaxed">{log.details}</p>
+                        <h4 className="text-lg font-black text-gray-900 mb-1">{log.action}</h4>
+                        <p className="text-sm text-gray-500 font-medium leading-relaxed">{log.details}</p>
                       </div>
 
                       <div className="flex items-center justify-between pt-2 border-t border-gray-50">
@@ -414,6 +432,48 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                   <div className="py-20 text-center text-gray-300 font-bold italic">该月份暂无日志记录</div>
                 )}
               </div>
+
+              {/* Pagination Controls */}
+              {logs.length > LOGS_PER_PAGE && (
+                <div className="bg-gray-50/50 px-6 py-4 flex items-center justify-between border-t border-gray-100">
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                    第 {currentPage} / {totalPages} 页 (共 {logs.length} 条)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage(1)}
+                      className="p-2 bg-white rounded-lg border border-gray-100 text-gray-400 disabled:opacity-30 hover:text-brand"
+                    >
+                      <ChevronsLeft size={16} />
+                    </button>
+                    <button
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage(currentPage - 1)}
+                      className="p-2 bg-white rounded-lg border border-gray-100 text-gray-400 disabled:opacity-30 hover:text-brand"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <div className="flex items-center px-4 bg-white border border-gray-100 rounded-lg h-9">
+                      <span className="text-xs font-black text-gray-900">{currentPage}</span>
+                    </div>
+                    <button
+                      disabled={currentPage === totalPages}
+                      onClick={() => setCurrentPage(currentPage + 1)}
+                      className="p-2 bg-white rounded-lg border border-gray-100 text-gray-400 disabled:opacity-30 hover:text-brand"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                    <button
+                      disabled={currentPage === totalPages}
+                      onClick={() => setCurrentPage(totalPages)}
+                      className="p-2 bg-white rounded-lg border border-gray-100 text-gray-400 disabled:opacity-30 hover:text-brand"
+                    >
+                      <ChevronsRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         ) : (

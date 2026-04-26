@@ -135,6 +135,7 @@ db.exec(`
     message TEXT NOT NULL,
     type TEXT NOT NULL,
     isRead INTEGER DEFAULT 0,
+    metadata TEXT,
     timestamp INTEGER NOT NULL
   );
 
@@ -145,6 +146,7 @@ db.exec(`
 `);
 
 // Migrations
+try { db.exec("ALTER TABLE notifications ADD COLUMN metadata TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE reward_rules ADD COLUMN familyId TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE reward_rules ADD COLUMN isRepeating INTEGER DEFAULT 1"); } catch(e) {}
 try { db.exec("ALTER TABLE reward_rules ADD COLUMN targetChildId TEXT DEFAULT 'all'"); } catch(e) {}
@@ -241,7 +243,19 @@ async function startServer() {
     cors: { origin: '*' }
   });
 
+  // Trust proxy to get real IP when running in Docker/behind reverse proxy
+  app.set('trust proxy', true);
+
   app.use(express.json());
+
+  // Helper to extract real client IP, especially behind Cloudflare Tunnel/Docker Bridge
+  const getClientIp = (req: express.Request) => {
+    const cfIp = req.headers['cf-connecting-ip'];
+    if (typeof cfIp === 'string') return cfIp;
+    
+    // Express req.ip already handles X-Forwarded-For if trust proxy is set
+    return req.ip || '-';
+  };
 
   // Request logger for debugging
   app.use((req, res, next) => {
@@ -262,7 +276,7 @@ async function startServer() {
   // Generalized Login supporting User@Family
   app.post('/api/login', (req, res) => {
     const { name, password } = req.body;
-    const ip = req.ip;
+    const ip = getClientIp(req);
     
     const clientKey = `${ip}:${name}`;
     const bfStatus = checkBruteForce(clientKey);
@@ -397,8 +411,10 @@ async function startServer() {
     logAction({
       level: 'SECURITY',
       action: 'ADMIN_PASSWORD_CHANGE',
+      userName: 'admin',
       details: 'Super Admin changed their password',
-      success: true
+      success: true,
+      ip: getClientIp(req)
     });
 
     res.json({ success: true });
@@ -468,7 +484,8 @@ async function startServer() {
         action: 'DELETE_FAMILY',
         familyId,
         details: `Super Admin deleted family ${familyId}`,
-        success: true
+        success: true,
+        ip: getClientIp(req)
       });
       res.json({ success: true });
     } catch (e) {
@@ -477,7 +494,8 @@ async function startServer() {
         action: 'DELETE_FAMILY',
         familyId,
         details: `Error deleting family: ${(e as Error).message}`,
-        success: false
+        success: false,
+        ip: getClientIp(req)
       });
       res.status(500).json({ success: false, error: (e as Error).message });
     }
@@ -556,7 +574,8 @@ async function startServer() {
         familyId: famId,
         userName: adminName,
         details: `New family registered: ${familyName}`,
-        success: true
+        success: true,
+        ip: getClientIp(req)
       });
       res.json({ success: true, user: { id: pId, name: adminName, role: 'parent', familyId: famId } });
     } catch (e) {
@@ -564,7 +583,8 @@ async function startServer() {
         level: 'ERROR',
         action: 'REGISTER_FAMILY',
         details: `Registration failed for ${familyName}: ${(e as Error).message}`,
-        success: false
+        success: false,
+        ip: getClientIp(req)
       });
       res.status(500).json({ success: false, message: '注册失败，可能家庭名称已存在' });
     }
@@ -585,7 +605,8 @@ async function startServer() {
         userName: parentId,
         familyId: parent.familyId,
         details: `Added new member: ${name} (${role || 'child'})`,
-        success: true
+        success: true,
+        ip: getClientIp(req)
       });
       res.json({ success: true, user: { id, name, role: role || 'child', parentId, familyId: parent.familyId } });
     } catch (e) {
@@ -594,7 +615,8 @@ async function startServer() {
         action: 'ADD_MEMBER',
         userId: parentId,
         details: `Failed to add member ${name}: ${(e as Error).message}`,
-        success: false
+        success: false,
+        ip: getClientIp(req)
       });
       res.status(500).json({ success: false, message: '添加失败' });
     }
@@ -707,6 +729,17 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.post('/api/rules/reactivate', (req, res) => {
+    const { ruleId, childId } = req.body;
+    try {
+      // Archive approved submissions for this rule by this child so they can submit it again
+      db.prepare("UPDATE task_submissions SET status = 'archived' WHERE ruleId = ? AND childId = ? AND status = 'approved'").run(ruleId, childId);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: 'Reactivation failed' });
+    }
+  });
+
   app.get('/api/rewards/:uid', (req, res) => {
     const user = db.prepare('SELECT role, familyId FROM users WHERE id = ?').get(req.params.uid) as any;
     if (!user) return res.json([]);
@@ -779,10 +812,35 @@ async function startServer() {
     const { id, childId, parentId, ruleId, title, points } = req.body;
     const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(parentId) as any;
     const timestamp = Date.now();
+
+    // Check rule constraints
+    const rule = db.prepare('SELECT isRepeating FROM reward_rules WHERE id = ?').get(ruleId) as any;
+    if (rule) {
+      if (rule.isRepeating === 0 || rule.isRepeating === false) {
+        // Special Rule (One-time): Check if ever submitted and active
+        const existing = db.prepare("SELECT id FROM task_submissions WHERE childId = ? AND ruleId = ? AND status IN ('pending', 'approved')").get(childId, ruleId);
+        if (existing) {
+          return res.status(400).json({ success: false, error: '这个任务是一次性的，你已经完成过啦！' });
+        }
+      } else {
+        // Daily Rule: Check if submitted today and active
+        const startOfDay = new Date().setHours(0, 0, 0, 0);
+        const existingToday = db.prepare("SELECT id FROM task_submissions WHERE childId = ? AND ruleId = ? AND timestamp >= ? AND status IN ('pending', 'approved')").get(childId, ruleId, startOfDay);
+        if (existingToday) {
+          return res.status(400).json({ success: false, error: '这个任务每天只能领一次，明天再来吧！' });
+        }
+      }
+    }
+
     db.prepare('INSERT INTO task_submissions (id, childId, parentId, ruleId, title, points, timestamp, status, familyId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, childId, parentId, ruleId, title, points, timestamp, 'pending', user?.familyId);
     
-    io.emit('new_task_submission', { childId, title });
+    // Also save a persistent notification for the parent
+    const notifId = Math.random().toString(36).substr(2, 9);
+    db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(notifId, parentId, '新的任务申请', `孩子提交了任务: ${title}`, 'info', timestamp);
+    io.emit('new_notification', { userId: parentId });
+
     res.json({ success: true });
   });
 
@@ -793,14 +851,30 @@ async function startServer() {
 
     try {
       const trx = db.transaction(() => {
+        // Find rule ID associated with this task
+        const task = db.prepare('SELECT ruleId FROM task_submissions WHERE id = ?').get(id) as any;
+        let isAchievement = false;
+        let ruleId = '';
+        
+        if (task) {
+          ruleId = task.ruleId;
+          const rule = db.prepare('SELECT isRepeating FROM reward_rules WHERE id = ?').get(task.ruleId) as any;
+          if (rule && (rule.isRepeating === 0 || rule.isRepeating === false)) {
+            isAchievement = true;
+          }
+        }
+
         db.prepare("UPDATE task_submissions SET status = 'approved' WHERE id = ?").run(id);
         db.prepare('UPDATE users SET points = points + ? WHERE id = ?').run(points, childId);
         db.prepare('INSERT INTO point_history (id, childId, amount, reason, timestamp, type) VALUES (?, ?, ?, ?, ?, ?)')
           .run(historyId, childId, points, title, timestamp, 'earn');
         
         const notifId = Math.random().toString(36).substr(2, 9);
-        db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(notifId, childId, '任务已通过！', `你的任务"${title}"已获得 ${points} 星币奖励！继续加油哦！`, 'success', timestamp);
+        const notifType = isAchievement ? 'achievement_granted' : 'success';
+        const notifMetadata = isAchievement ? JSON.stringify({ ruleId, title }) : null;
+
+        db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(notifId, childId, isAchievement ? '成就解锁！' : '任务已通过！', isAchievement ? `恭喜你达成了特别成就："${title}"！继续保持哦！` : `你的任务"${title}"已获得 ${points} 星币奖励！继续加油哦！`, notifType, timestamp, notifMetadata);
       });
       trx();
 
@@ -812,7 +886,6 @@ async function startServer() {
         success: true
       });
 
-      io.emit('task_approved', { childId, title, points });
       io.emit('new_notification', { userId: childId });
       res.json({ success: true });
     } catch (e) {
@@ -833,8 +906,8 @@ async function startServer() {
       db.prepare("UPDATE task_submissions SET status = 'rejected', rejectionReason = ? WHERE id = ?").run(rejectionReason, id);
       
       const notifId = Math.random().toString(36).substr(2, 9);
-      db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(notifId, childId, '任务需要调整', `任务"${title}"暂时没通过。爸爸妈妈说：${rejectionReason}`, 'error', timestamp);
+      db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(notifId, childId, '任务需要调整', `任务"${title}"暂时没通过。爸爸妈妈说：${rejectionReason}`, 'error', timestamp, JSON.stringify({ type: 'task_rejected', taskId: id, title }));
 
       logAction({
         level: 'INFO',
@@ -844,7 +917,6 @@ async function startServer() {
         success: true
       });
 
-      io.emit('task_rejected', { childId, title, rejectionReason });
       io.emit('new_notification', { userId: childId });
       res.json({ success: true });
     } catch (e) {
@@ -865,7 +937,12 @@ async function startServer() {
     db.prepare('INSERT INTO redemption_records (id, childId, parentId, rewardId, rewardTitle, timestamp, status, familyId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, childId, parentId, rewardId, rewardTitle, timestamp, 'pending', user?.familyId);
     
-    io.emit('new_redemption', { childId, rewardTitle });
+    // Also save a persistent notification for the parent
+    const notifId = Math.random().toString(36).substr(2, 9);
+    db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(notifId, parentId, '新的兑换申请', `孩子想要兑换奖励: ${rewardTitle}`, 'info', timestamp);
+    io.emit('new_notification', { userId: parentId });
+
     res.json({ success: true });
   });
 
@@ -892,6 +969,10 @@ async function startServer() {
         db.prepare('UPDATE users SET points = points - ? WHERE id = ?').run(pointsCost, childId);
         db.prepare('INSERT INTO point_history (id, childId, amount, reason, timestamp, type) VALUES (?, ?, ?, ?, ?, ?)')
           .run(historyId, childId, pointsCost, `兑换奖励: ${rewardTitle || '未知奖励'}`, timestamp, 'spend');
+        
+        const notifId = Math.random().toString(36).substr(2, 9);
+        db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(notifId, childId, '心愿达成！', `太棒了！爸爸妈妈批准了你的兑换申请："${rewardTitle}"。快去抱抱他们吧！`, 'wish_granted', timestamp, JSON.stringify({ rewardId, rewardTitle }));
       });
       trx();
 
@@ -904,12 +985,44 @@ async function startServer() {
       });
 
       io.emit('redemption_approved', { childId, rewardId });
+      io.emit('new_notification', { userId: childId });
       res.json({ success: true });
     } catch (e) {
       logAction({
         level: 'ERROR',
         action: 'REDEMPTION_APPROVED',
         details: `Failed to approve redemption ${id}: ${(e as Error).message}`,
+        success: false
+      });
+      res.status(500).json({ success: false, error: (e as Error).message });
+    }
+  });
+
+  app.post('/api/redemptions/reject', (req, res) => {
+    const { id, childId, rewardTitle, rejectionReason } = req.body;
+    const timestamp = Date.now();
+    try {
+      db.prepare("UPDATE redemption_records SET status = 'rejected', rejectionReason = ? WHERE id = ?").run(rejectionReason, id);
+      
+      const notifId = Math.random().toString(36).substr(2, 9);
+      db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(notifId, childId, '心愿申请需要调整', `关于兑换"${rewardTitle}"，爸爸妈妈有话对你说：${rejectionReason}`, 'error', timestamp);
+
+      logAction({
+        level: 'INFO',
+        action: 'REDEMPTION_REJECTED',
+        userId: childId,
+        details: `Rejected redemption: ${rewardTitle} for ${childId}. Reason: ${rejectionReason}`,
+        success: true
+      });
+
+      io.emit('new_notification', { userId: childId });
+      res.json({ success: true });
+    } catch (e) {
+      logAction({
+        level: 'ERROR',
+        action: 'REDEMPTION_REJECTED',
+        details: `Failed to reject redemption ${id}: ${(e as Error).message}`,
         success: false
       });
       res.status(500).json({ success: false, error: (e as Error).message });
@@ -926,6 +1039,61 @@ async function startServer() {
       LIMIT 30
     `).all(req.params.childId);
     res.json(stats);
+  });
+
+  app.get('/api/growth-history/:parentId', (req, res) => {
+    const parentId = req.params.parentId;
+    const { childId, page = 1, limit = 10 } = req.query;
+    const offset = (Number(page) - 1) * Number(limit);
+    
+    const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(parentId) as any;
+    if (!user) return res.json({ total: 0, items: [] });
+
+    let taskQuery = "SELECT 'task' as type, id, childId, title, points, status, timestamp FROM task_submissions WHERE familyId = ? AND status IN ('approved', 'rejected')";
+    let redemptionQuery = "SELECT 'redemption' as type, id, childId, rewardTitle as title, -points as points, status, timestamp FROM redemption_records WHERE familyId = ? AND status IN ('approved', 'rejected')";
+    const params: any[] = [user.familyId, user.familyId];
+
+    if (childId && childId !== 'all') {
+      taskQuery += " AND childId = ?";
+      redemptionQuery += " AND childId = ?";
+      params.push(childId, childId);
+    }
+
+    const combinedQuery = `
+      SELECT * FROM (${taskQuery} UNION ALL ${redemptionQuery})
+      ORDER BY timestamp DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const totalQuery = `
+      SELECT COUNT(*) as count FROM (${taskQuery} UNION ALL ${redemptionQuery})
+    `;
+
+    try {
+      const items = db.prepare(combinedQuery).all(...params, limit, offset);
+      const total = (db.prepare(totalQuery).get(...params) as any).count;
+      res.json({ total, items });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  app.delete('/api/tasks/:id', (req, res) => {
+    try {
+      db.prepare('DELETE FROM task_submissions WHERE id = ?').run(req.params.id);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: (e as Error).message });
+    }
+  });
+
+  app.delete('/api/redemptions/:id', (req, res) => {
+    try {
+      db.prepare('DELETE FROM redemption_records WHERE id = ?').run(req.params.id);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: (e as Error).message });
+    }
   });
 
   // Catch-all for unmatched API routes

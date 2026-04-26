@@ -77,9 +77,9 @@ export const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) =>
 
   return (
     <div className="min-h-screen bg-[#FDFDFC] flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      {/* Decorative background elements */}
-      <div className="absolute -top-24 -left-24 w-96 h-96 bg-brand-light rounded-full blur-3xl opacity-50" />
-      <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-secondary-light rounded-full blur-3xl opacity-50" />
+      {/* Decorative background elements - added pointer-events-none */}
+      <div className="absolute -top-24 -left-24 w-96 h-96 bg-brand-light rounded-full blur-3xl opacity-50 pointer-events-none" />
+      <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-secondary-light rounded-full blur-3xl opacity-50 pointer-events-none" />
       
        <header className="text-center mb-12 relative z-10">
           <motion.div 
@@ -97,8 +97,8 @@ export const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) =>
           </div>
        </header>
 
-       <div className="w-full max-w-sm">
-         <form onSubmit={handleLogin} className="space-y-4">
+       <div className="w-full max-w-sm relative z-10">
+          <form onSubmit={handleLogin} className="space-y-4">
             <div className="bg-gray-50 p-1 rounded-[2rem] border border-gray-100 shadow-sm focus-within:ring-4 focus-within:ring-brand-light focus-within:border-brand-light transition-all">
               <div className="flex items-center gap-3 px-5 py-4">
                 <User size={20} className="text-gray-400" />

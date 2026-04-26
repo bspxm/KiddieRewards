@@ -14,6 +14,8 @@ import {
   Edit2,
   Check,
   RotateCw,
+  Clock,
+  Star,
   LogOut,
   Layout,
   PieChart,
@@ -24,7 +26,8 @@ import {
   Sparkles,
   User,
   Lock,
-  AlertCircle
+  AlertCircle,
+  ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Socket } from 'socket.io-client';
@@ -44,6 +47,8 @@ import {
   RedemptionRecord, 
   TaskSubmission 
 } from '../../types';
+import { requestNotificationPermission, sendBrowserNotification } from '../../lib/notificationHelper';
+import { CustomSelect } from '../ui/CustomSelect';
 
 export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, currentTheme }: { 
   user: UserProfile, 
@@ -62,6 +67,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
   const [stats, setStats] = useState<any[]>([]);
   const [rewards, setRewards] = useState<RewardItem[]>([]);
   const [pendingTasks, setPendingTasks] = useState<TaskSubmission[]>([]);
+  const [allSubmissions, setAllSubmissions] = useState<TaskSubmission[]>([]);
   const [showAddReward, setShowAddReward] = useState(false);
   const [newReward, setNewReward] = useState({ title: '', pointsRequired: 50, targetChildId: 'all' });
   const [editingReward, setEditingReward] = useState<RewardItem | null>(null);
@@ -70,6 +76,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
   const [newRule, setNewRule] = useState({ title: '', points: 10, description: '', isRepeating: true, targetChildId: 'all' });
   const [editingRule, setEditingRule] = useState<RewardRule | null>(null);
   const [taskToReject, setTaskToReject] = useState<TaskSubmission | null>(null);
+  const [redemptionToReject, setRedemptionToReject] = useState<RedemptionRecord | null>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState('');
   const [showAddChild, setShowAddChild] = useState(false);
   const [newChildName, setNewChildName] = useState('');
@@ -83,7 +90,44 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
   const [profilePassword, setProfilePassword] = useState('');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
+  const [growthHistory, setGrowthHistory] = useState<any[]>([]);
+  const [growthTotal, setGrowthTotal] = useState(0);
+  const [growthPage, setGrowthPage] = useState(1);
+  const [growthFilterChildId, setGrowthFilterChildId] = useState('all');
+  const growthLimit = 10;
   const child = children.find(c => c.id === selectedChildId) || null;
+
+  const fetchGrowthHistory = async () => {
+    try {
+      const res = await fetch(`/api/growth-history/${user.id}?childId=${growthFilterChildId}&page=${growthPage}&limit=${growthLimit}`);
+      if (res.ok) {
+        const data = await res.json();
+        setGrowthHistory(data.items);
+        setGrowthTotal(data.total);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const deleteHistoryItem = async (item: any) => {
+    if (!confirm('确定要删除这条足迹吗？此操作不可逆。')) return;
+    const url = item.type === 'task' ? `/api/tasks/${item.id}` : `/api/redemptions/${item.id}`;
+    try {
+      const res = await fetch(url, { method: 'DELETE' });
+      if (res.ok) {
+        fetchGrowthHistory();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'growth_manage') {
+      fetchGrowthHistory();
+    }
+  }, [activeTab, growthPage, growthFilterChildId]);
 
   const addReward = async () => {
     const id = Math.random().toString(36).substr(2, 9);
@@ -134,14 +178,15 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
       const activeChild = myChildren.find((c: UserProfile) => c.id === (selectedChildId || (myChildren[0]?.id)));
 
-      const [resRules, resRecords, resRewards, resTasks] = await Promise.all([
+      const [resRules, resRecords, resRewards, resTasks, resAllSubmissions] = await Promise.all([
         fetch(`/api/rules/${user.id}`),
         fetch(`/api/redemptions/${user.id}`),
         fetch(`/api/rewards/${user.id}`),
-        fetch(`/api/tasks/pending/${user.id}`)
+        fetch(`/api/tasks/pending/${user.id}`),
+        fetch(`/api/tasks/all/${selectedChildId || 'all'}`)
       ]);
 
-      if (!resRules.ok || !resRecords.ok || !resRewards.ok || !resTasks.ok) {
+      if (!resRules.ok || !resRecords.ok || !resRewards.ok || !resTasks.ok || !resAllSubmissions.ok) {
         throw new Error("One or more dashboard APIs failed");
       }
 
@@ -149,6 +194,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
       setRecords(await resRecords.json());
       setRewards(await resRewards.json());
       setPendingTasks(await resTasks.json());
+      setAllSubmissions(await resAllSubmissions.json());
 
       if (activeChild) {
         const resStats = await fetch(`/api/stats/${activeChild.id}`);
@@ -267,20 +313,63 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
     if (socket) socket.emit('update_data', { parentId: user.id });
   };
 
+  const reactivateRule = async (ruleId: string, childId: string) => {
+    try {
+      const res = await fetch('/api/rules/reactivate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ruleId, childId })
+      });
+      if (res.ok) {
+        fetchData();
+        if (socket) socket.emit('update_data', { parentId: user.id });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
     fetchData();
+    requestNotificationPermission();
   }, [user, selectedChildId]);
 
   useEffect(() => {
+    if (pendingTasks.length > 0) {
+      const latestTask = pendingTasks[0];
+      const lastNotifiedTaskId = localStorage.getItem(`last_notified_task_${user.id}`);
+      if (lastNotifiedTaskId !== latestTask.id) {
+        const childName = children.find(c => c.id === latestTask.childId)?.name || '孩子';
+        sendBrowserNotification('新任务申请', {
+          body: `${childName} 提交了任务: ${latestTask.title}`,
+          tag: latestTask.id
+        });
+        localStorage.setItem(`last_notified_task_${user.id}`, latestTask.id);
+      }
+    }
+  }, [pendingTasks, children, user.id]);
+
+  useEffect(() => {
+    const pendingRedemptions = records.filter(r => r.status === 'pending');
+    if (pendingRedemptions.length > 0) {
+      const latestRedemption = pendingRedemptions[0];
+      const lastNotifiedRedId = localStorage.getItem(`last_notified_red_${user.id}`);
+      if (lastNotifiedRedId !== latestRedemption.id) {
+        const childName = children.find(c => c.id === latestRedemption.childId)?.name || '孩子';
+        sendBrowserNotification('新愿望审批', {
+          body: `${childName} 想要兑换: ${latestRedemption.rewardTitle}`,
+          tag: latestRedemption.id
+        });
+        localStorage.setItem(`last_notified_red_${user.id}`, latestRedemption.id);
+      }
+    }
+  }, [records, children, user.id]);
+
+  useEffect(() => {
+    // Real-time auto-fetch disabled per user request
     if (!socket) return;
-    const handleUpdate = () => fetchData();
-    socket.on('new_task_submission', handleUpdate);
-    socket.on('new_redemption', handleUpdate);
-    return () => {
-      socket.off('new_task_submission', handleUpdate);
-      socket.off('new_redemption', handleUpdate);
-    };
-  }, [socket]);
+    // socket.on('new_notification', fetchData); // Disabled
+  }, [socket, user.id]);
 
   const awardPointsDirectly = async (rule: RewardRule) => {
     if (!child) return;
@@ -347,6 +436,25 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
       })
     });
     fetchData();
+    if (socket) socket.emit('update_data', { parentId: user.id });
+  };
+
+  const rejectRedemption = async () => {
+    if (!redemptionToReject) return;
+    await fetch('/api/redemptions/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        id: redemptionToReject.id, 
+        childId: redemptionToReject.childId, 
+        rewardTitle: redemptionToReject.rewardTitle,
+        rejectionReason: rejectionReasonInput || '抱歉，暂时不能兑换哦，再继续表现棒棒的吧！'
+      })
+    });
+    setRedemptionToReject(null);
+    setRejectionReasonInput('');
+    fetchData();
+    if (socket) socket.emit('update_data', { parentId: user.id });
   };
 
   return (
@@ -373,12 +481,10 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                     </div>
                     <span className={`font-black text-sm ${selectedChildId === c.id ? 'text-secondary-hover' : 'text-gray-500'}`}>{c.name}</span>
                   </div>
-                  {selectedChildId === c.id && (
-                    <div className="flex flex-col items-end">
-                      <span className="text-[10px] font-black text-secondary-hover leading-none">{c.points}</span>
-                      <span className="text-[8px] font-bold text-secondary uppercase tracking-tighter">星币</span>
-                    </div>
-                  )}
+                  <div className="flex flex-col items-end">
+                    <span className="text-[10px] font-black text-secondary-hover leading-none">{c.points}</span>
+                    <span className="text-[8px] font-bold text-secondary uppercase tracking-tighter">星币</span>
+                  </div>
                 </button>
               ))}
               <button 
@@ -400,6 +506,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                 { id: 'rules', label: '加分规则', icon: Zap },
                 { id: 'rewards_manage', label: '愿望清单', icon: Gift },
                 { id: 'redemptions', label: '兑换审批', icon: Check },
+                { id: 'growth_manage', label: '成长足迹管理', icon: Activity },
                 { id: 'analysis', label: '数据分析', icon: PieChart },
                 { id: 'family_manage', label: '家庭及成员', icon: Settings }
               ].map(item => (
@@ -417,6 +524,17 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                 </button>
               ))}
             </div>
+          </div>
+          
+          <div className="pt-6 border-t border-gray-50">
+            <h2 className="text-[10px] font-bold uppercase tracking-[2px] text-gray-400 mb-4 px-2">视图预览</h2>
+            <button 
+              onClick={onSwitchToChild}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-secondary hover:bg-secondary-light transition-all font-bold text-sm group"
+            >
+              <Smile size={18} className="group-hover:scale-110 transition-transform" />
+              进入儿童端预览
+            </button>
           </div>
           
           <div className="pt-4 mt-2">
@@ -437,94 +555,196 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
           {activeTab === 'dashboard' && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-6">
               <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
-                <div>
-                  <h1 className="text-4xl font-black text-gray-900 tracking-tighter">你好, {user.name} 👋</h1>
-                  <p className="text-gray-500 mt-2 font-medium">今天也请多多鼓励孩子们吧！</p>
+                <div className="min-w-0">
+                  <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tighter truncate">你好, {user.name} 👋</h1>
+                  <p className="text-sm sm:text-base text-gray-500 mt-2 font-medium">今天也请多多鼓励孩子们吧！</p>
                 </div>
               </header>
 
-              <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm overflow-hidden relative">
-                   <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-bold text-gray-800">直接加分</h3>
+              <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* 0. Points Leaderboard - Quick Overview */}
+                <div className="bg-gradient-to-br from-brand to-brand-hover rounded-3xl p-8 shadow-xl shadow-brand-light flex flex-col md:col-span-2 text-white overflow-hidden relative">
+                   <div className="relative z-10">
+                      <div className="flex items-center justify-between mb-8">
+                         <h3 className="font-black text-2xl tracking-tighter flex items-center gap-2">
+                           <Star size={24} className="text-yellow-300 animate-pulse" />
+                           {children.length > 1 ? '星币财富榜' : '本月星币概况'}
+                         </h3>
+                         <div className="bg-white/20 backdrop-blur-md px-4 py-1 rounded-full text-xs font-bold">
+                           {children.length > 1 ? `全家总计: ${children.reduce((acc, c) => acc + (c.points || 0), 0)} 星币` : '实时星币存款'}
+                         </div>
+                      </div>
+                      
+                      {children.length === 1 ? (
+                        <div className="flex flex-col sm:flex-row items-center gap-8 py-4">
+                           <div className="relative">
+                              <div className="w-24 h-24 bg-white/20 rounded-[2rem] flex items-center justify-center text-5xl">
+                                 ✨
+                              </div>
+                              <motion.div 
+                                animate={{ rotate: 360 }} 
+                                transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
+                                className="absolute inset-[-8px] border-2 border-dashed border-white/20 rounded-[2.5rem]"
+                              />
+                           </div>
+                           <div className="text-center sm:text-left">
+                              <h4 className="text-4xl font-black mb-2">{children[0].name}</h4>
+                              <div className="flex items-center justify-center sm:justify-start gap-3">
+                                 <div className="bg-white text-brand px-6 py-2 rounded-2xl text-2xl font-black shadow-xl">
+                                   {children[0].points || 0} <span className="text-sm">星币</span>
+                                 </div>
+                                 <p className="text-sm font-medium opacity-80 max-w-[200px]">继续加油，解锁更多心愿吧！</p>
+                              </div>
+                           </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                           {children.sort((a, b) => (b.points || 0) - (a.points || 0)).map((c, idx) => (
+                             <div key={c.id} className="bg-white/10 backdrop-blur-sm rounded-[2rem] p-5 border border-white/10 flex flex-col items-center text-center group hover:bg-white/20 transition-all">
+                                <div className="relative mb-3">
+                                  <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-3xl">
+                                     {idx === 0 ? '👑' : (idx === 1 ? '🥈' : (idx === 2 ? '🥉' : '✨'))}
+                                  </div>
+                                  {idx === 0 && (
+                                    <motion.div 
+                                      animate={{ rotate: 360 }} 
+                                      transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
+                                      className="absolute inset-[-4px] border-2 border-dashed border-yellow-300 rounded-[1.25rem] opacity-50"
+                                    />
+                                  )}
+                                </div>
+                                <p className="font-black text-lg mb-1 truncate w-full px-2">{c.name}</p>
+                                <div className="bg-white text-brand px-3 py-1 rounded-xl text-sm font-black shadow-lg">
+                                  {c.points || 0}
+                                </div>
+                             </div>
+                           ))}
+                           {children.length === 0 && (
+                             <p className="col-span-full py-8 text-white/50 font-bold italic text-center">暂无家庭成员</p>
+                           )}
+                        </div>
+                      )}
+                   </div>
+                   {/* Decorative background circle */}
+                   <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-white/5 rounded-full blur-3xl" />
+                   <div className="absolute -top-10 -left-10 w-40 h-40 bg-white/10 rounded-full blur-2xl" />
+                </div>
+
+                {/* 1. Direct Add Points */}
+                <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm flex flex-col">
+                   <div className="flex items-center justify-between mb-6">
+                      <h3 className="font-black text-xl text-gray-900 flex items-center gap-2">
+                        <Zap size={20} className="text-brand" />
+                        直接加分
+                      </h3>
                       <button onClick={() => setActiveTab('rules')} className="text-xs text-brand font-bold hover:underline">管理规则</button>
                    </div>
-                   <div className="space-y-3">
-                      {rules.slice(0, 3).map(rule => (
-                        <button 
-                          key={rule.id}
-                          onClick={() => awardPointsDirectly(rule)}
-                          className="w-full flex items-center justify-between p-3 rounded-2xl border border-gray-50 hover:border-brand-light hover:bg-brand-light/30 transition-all group"
-                        >
-                          <div className="flex items-center gap-3">
-                             <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400 group-hover:bg-white group-hover:text-brand transition-colors">
-                               <Plus size={18} />
-                             </div>
-                             <span className="font-semibold text-sm text-gray-700">{rule.title}</span>
-                          </div>
-                          <span className="font-bold text-brand">+{rule.points}</span>
-                        </button>
-                      ))}
+                   <div className="space-y-3 flex-1 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
+                      {rules.filter(r => r.isRepeating).slice(0, 4).length === 0 ? (
+                        <div className="py-10 text-center opacity-40">
+                           <Zap size={40} className="mx-auto mb-2 text-gray-300" />
+                           <p className="text-xs font-bold text-gray-400">暂无日常规则</p>
+                        </div>
+                      ) : (
+                        rules.filter(r => r.isRepeating).slice(0, 4).map(rule => (
+                          <button 
+                            key={rule.id}
+                            onClick={() => awardPointsDirectly(rule)}
+                            className="w-full flex items-start justify-between gap-4 p-4 rounded-2xl border border-gray-50 hover:border-brand-light hover:bg-brand-light/30 transition-all group text-left"
+                          >
+                            <div className="flex items-start gap-3 flex-1">
+                               <div className="w-10 h-10 shrink-0 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 group-hover:bg-white group-hover:text-brand transition-colors">
+                                 <Plus size={18} />
+                               </div>
+                               <div className="min-w-0">
+                                  <p className="font-bold text-gray-800 leading-tight mb-1 break-words">{rule.title}</p>
+                                  <span className="text-[10px] font-black text-brand bg-brand-light px-2 py-0.5 rounded">+{rule.points} 星币</span>
+                               </div>
+                            </div>
+                            <div className="bg-brand hover:bg-brand-hover text-white p-2.5 rounded-xl shadow-md shadow-brand-light transition-colors self-center">
+                               <Check size={18} />
+                            </div>
+                          </button>
+                        ))
+                      )}
                    </div>
                 </div>
 
-                <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm">
-                   <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-bold text-gray-800">待确认任务 ({pendingTasks.length})</h3>
-                      <button onClick={() => setActiveTab('task_approval')} className="text-xs text-brand font-bold hover:underline">查看全部</button>
+                {/* 2. Pending Tasks */}
+                <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm flex flex-col">
+                   <div className="flex items-center justify-between mb-6">
+                      <h3 className="font-black text-xl text-gray-900 flex items-center gap-2">
+                        <Clock size={20} className="text-brand" />
+                        待确认任务
+                      </h3>
+                      <button onClick={() => setActiveTab('tasks')} className="text-xs text-brand font-bold hover:underline">查看全部 ({pendingTasks.length})</button>
                    </div>
-                   <div className="space-y-3">
-                      {pendingTasks.slice(0, 3).map(task => (
-                        <div key={task.id} className="flex items-center justify-between p-3 rounded-2xl bg-brand-light/50 border border-brand-light/50">
-                          <div>
-                            <p className="font-semibold text-sm text-brand-hover">{task.title}</p>
-                            <p className="text-[10px] font-bold text-brand-hover/70">{children.find(c => c.id === task.childId)?.name} 申请加分</p>
+                   <div className="space-y-3 flex-1 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
+                      {pendingTasks.slice(0, 4).map(task => (
+                        <div key={task.id} className="flex items-start justify-between gap-4 p-4 rounded-2xl bg-brand-light/20 border border-brand-light/50 text-left">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-brand-hover leading-tight mb-1 break-words">{task.title}</p>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-black text-brand bg-white px-2 py-0.5 rounded">+{task.points} 星币</span>
+                              {children.length > 1 && <span className="text-[10px] font-bold text-brand-hover/60">申请人: {children.find(c => c.id === task.childId)?.name}</span>}
+                            </div>
                           </div>
                           <button 
                             onClick={() => approveTask(task)}
-                            className="bg-brand hover:bg-brand-hover text-white p-2 rounded-xl shadow-md shadow-brand-light transition-colors"
+                            className="bg-brand hover:bg-brand-hover text-white p-2.5 rounded-xl shadow-md shadow-brand-light transition-colors self-center"
                           >
-                            <Check size={16} />
+                            <Check size={18} />
                           </button>
                         </div>
                       ))}
                       {pendingTasks.length === 0 && (
-                        <div className="h-32 flex flex-col items-center justify-center text-center">
-                          <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center text-gray-300 mb-2">
-                             <Layout size={20} />
-                          </div>
-                          <p className="text-xs text-gray-400 font-medium">暂无待确认任务</p>
+                        <div className="py-10 flex flex-col items-center justify-center opacity-40">
+                           <Star size={40} className="text-gray-300 mb-2" />
+                           <p className="text-xs font-bold text-gray-400">目前没有待确认的任务</p>
                         </div>
                       )}
                    </div>
                 </div>
 
-                <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm">
-                   <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-bold text-gray-800">待处理兑换 ({records.filter(r => r.status === 'pending').length})</h3>
-                      <button onClick={() => setActiveTab('redemptions')} className="text-xs text-brand font-bold hover:underline">去审批</button>
+                {/* 3. Pending Redemptions - Expanding to full row if it's the 3rd card */}
+                <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm flex flex-col md:col-span-2">
+                   <div className="flex items-center justify-between mb-6">
+                      <h3 className="font-black text-xl text-gray-900 flex items-center gap-2">
+                        <Gift size={20} className="text-secondary" />
+                        待处理兑换
+                      </h3>
+                      <button onClick={() => setActiveTab('redemptions')} className="text-xs text-brand font-bold hover:underline">去审批 ({records.filter(r => r.status === 'pending').length})</button>
                    </div>
-                   <div className="space-y-3">
+                   <div className="space-y-3 flex-1 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
                       {records.filter(r => r.status === 'pending').slice(0, 3).map(record => (
-                        <div key={record.id} className="flex items-center justify-between p-3 rounded-2xl bg-secondary-light/50 border border-secondary/20">
-                          <div>
-                            <p className="font-semibold text-sm text-secondary-hover">{record.rewardTitle}</p>
-                            <p className="text-[10px] font-bold text-secondary-hover/70">{children.find(c => c.id === record.childId)?.name} 发起</p>
+                        <div key={record.id} className="flex items-start justify-between gap-4 p-4 rounded-2xl bg-secondary-light/20 border border-secondary/20 text-left">
+                          <div className="w-12 h-12 rounded-xl bg-white flex-shrink-0 overflow-hidden border border-secondary/10">
+                             <img 
+                               src={`https://picsum.photos/seed/${record.rewardId}/100/100`} 
+                               alt={record.rewardTitle}
+                               className="w-full h-full object-cover"
+                               referrerPolicy="no-referrer"
+                             />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-secondary-hover leading-tight mb-1 break-words">{record.rewardTitle}</p>
+                            <div className="flex items-center gap-2">
+                              {children.length > 1 && <span className="text-[10px] font-bold text-secondary-hover/60">申请人: {children.find(c => c.id === record.childId)?.name}</span>}
+                              <span className="text-[10px] text-gray-400">• {new Date(record.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                            </div>
                           </div>
                           <button 
                             onClick={() => approveRedemption(record)}
-                            className="bg-secondary hover:bg-secondary-hover text-white p-2 rounded-xl shadow-md shadow-secondary-light transition-colors"
+                            className="bg-secondary hover:bg-secondary-hover text-white p-2.5 rounded-xl shadow-md shadow-secondary-light transition-colors self-center"
                           >
-                            <Check size={16} />
+                            <Check size={18} />
                           </button>
                         </div>
                       ))}
                       {records.filter(r => r.status === 'pending').length === 0 && (
-                        <div className="h-32 flex flex-col items-center justify-center text-center">
-                          <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center text-gray-300 mb-2">
-                             <Check size={20} />
-                          </div>
-                          <p className="text-xs text-gray-400 font-medium">暂无待处理申请</p>
+                        <div className="py-10 flex flex-col items-center justify-center opacity-40">
+                           <Gift size={40} className="text-gray-300 mb-2" />
+                           <p className="text-xs font-bold text-gray-400">所有心愿都处理完啦</p>
                         </div>
                       )}
                    </div>
@@ -535,10 +755,10 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
           {activeTab === 'family_manage' && (
             <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-12">
-               <div className="flex items-center justify-between">
-                  <div>
-                    <h1 className="text-3xl font-black text-gray-900 tracking-tight">家庭及成员</h1>
-                    <p className="text-gray-500 font-medium">管理您的家庭信息与成员设置</p>
+               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <div className="min-w-0">
+                    <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight truncate">家庭及成员</h1>
+                    <p className="text-xs sm:text-sm text-gray-500 font-medium">管理您的家庭信息与成员设置</p>
                   </div>
                </div>
 
@@ -649,6 +869,11 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                               <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${m.role === 'parent' ? 'bg-brand-light text-brand' : 'bg-secondary-light text-secondary'}`}>
                                 {m.role === 'parent' ? '家长' : '小朋友'}
                               </span>
+                              {m.role === 'child' && (
+                                <span className="text-[10px] font-black px-2 py-0.5 rounded bg-yellow-50 text-yellow-600 uppercase tracking-wider">
+                                  ✨ {m.points || 0} 星币
+                                </span>
+                              )}
                               <span className="text-[10px] font-bold text-gray-400">ID: {m.name}@{user.familyId}</span>
                             </div>
                           </div>
@@ -680,47 +905,47 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
           {activeTab === 'task_approval' && (
             <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
-               <div className="flex items-center justify-between">
-                  <h1 className="text-3xl font-black text-gray-900 tracking-tight">加分确认与管理</h1>
+               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight truncate">加分确认与管理</h1>
                   <button 
                     onClick={() => fetchData()}
-                    className="flex items-center gap-2 text-brand font-bold hover:bg-brand-light px-4 py-2 rounded-xl transition-colors"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 text-brand font-bold bg-brand-light/50 hover:bg-brand-light px-6 py-3 rounded-2xl transition-all active:scale-95 shrink-0"
                   >
                     <RotateCw size={18} />
-                    <span>刷新列表</span>
+                    <span className="whitespace-nowrap">刷新列表</span>
                   </button>
                </div>
                {pendingTasks.length > 0 ? (
                  <div className="grid grid-cols-1 gap-4">
                     {pendingTasks.map(task => (
-                      <div key={task.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm flex items-center justify-between">
-                         <div className="flex items-center gap-5">
-                            <div className="w-14 h-14 bg-brand-light text-brand rounded-2xl flex items-center justify-center">
-                               <Zap size={28} />
+                      <div key={task.id} className="bg-white p-5 sm:p-6 rounded-[2rem] border border-gray-100 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                         <div className="flex items-center gap-4 sm:gap-5 min-w-0 flex-1">
+                            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-brand-light text-brand rounded-2xl flex items-center justify-center shrink-0">
+                               <Zap size={24} className="sm:hidden" /><Zap size={28} className="hidden sm:block" />
                             </div>
                             <div>
-                               <p className="text-xl font-bold text-gray-900">{task.title}</p>
+                               <p className="text-lg sm:text-xl font-bold text-gray-900 truncate">{task.title}</p>
                                <div className="flex items-center gap-3 mt-1">
                                  <span className="text-xs font-black text-brand bg-brand-light px-2 py-0.5 rounded">+{task.points} 星币</span>
-                                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{children.find(c => c.id === task.childId)?.name}</span>
+                                  {children.length > 1 && <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{children.find(c => c.id === task.childId)?.name}</span>}
                                   <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 px-2 py-0.5 rounded">
-                                    {new Date(task.timestamp).toLocaleString()}
+                                    {new Date(task.timestamp).toLocaleDateString()}
                                   </span>
                                </div>
                             </div>
                          </div>
-                         <div className="flex items-center gap-3">
+                         <div className="flex items-center gap-2 sm:gap-3 shrink-0 self-end sm:self-auto w-full sm:w-auto mt-2 sm:mt-0">
                             <button 
                               onClick={() => rejectTask(task)}
-                              className="w-12 h-12 rounded-2xl border-2 border-red-50 text-red-400 hover:bg-red-50 transition-colors flex items-center justify-center"
+                              className="flex-1 sm:w-28 h-12 rounded-2xl font-black text-sm text-red-500 bg-red-50 hover:bg-red-500 hover:text-white transition-all active:scale-95 whitespace-nowrap flex items-center justify-center gap-2 group"
                             >
-                              <X size={24} />
+                              <X size={18} className="transition-transform group-hover:rotate-90" /><span>拒绝</span>
                             </button>
                             <button 
                               onClick={() => approveTask(task)}
-                              className="bg-brand text-white px-6 h-12 rounded-2xl font-black text-lg shadow-lg shadow-brand-light hover:bg-brand-hover transition-colors"
+                              className="flex-1 sm:w-28 h-12 rounded-2xl bg-brand text-white font-black text-sm sm:text-base shadow-lg shadow-brand-light hover:bg-brand-hover transition-all duration-300 active:scale-95 flex items-center justify-center gap-2 group"
                             >
-                              确认通过
+                              <Check size={18} className="transition-transform group-hover:scale-125" /><span>通过</span>
                             </button>
                          </div>
                       </div>
@@ -739,62 +964,80 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
           {activeTab === 'rules' && (
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6 text-gray-900">
-               <div className="flex items-center justify-between">
-                  <h1 className="text-3xl font-black text-gray-900 tracking-tight">奖励规则管理</h1>
+               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight truncate">奖励规则管理</h1>
                   <button 
                     onClick={() => setShowAddRule(true)}
-                    className="flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-2xl font-bold shadow-lg shadow-brand-light hover:bg-brand-hover transition-colors"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 bg-brand text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-brand-light hover:bg-brand-hover transition-all active:scale-95 shrink-0"
                   >
                     <Plus size={20} />
-                    <span>添加新规则</span>
+                    <span className="whitespace-nowrap">添加新规则</span>
                   </button>
                </div>
-               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-gray-900">
-                  {rules.map(rule => (
-                    <div key={rule.id} className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                           <div className="w-12 h-12 bg-brand-light text-brand rounded-2xl flex items-center justify-center">
-                              <Zap size={24} />
-                           </div>
-                           <div>
-                              <p className="font-bold text-gray-800">{rule.title}</p>
-                              <div className="flex flex-wrap items-center gap-2 mt-1">
-                                <span className="text-[10px] font-black text-brand bg-brand-light px-2 py-0.5 rounded">+{rule.points} 星币</span>
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${rule.isRepeating ? 'bg-blue-50 text-blue-500' : 'bg-orange-50 text-orange-500'}`}>
-                                  {rule.isRepeating ? '日常规则' : '特别加分'}
-                                </span>
-                                {rule.targetChildId && rule.targetChildId !== 'all' && (
-                                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-50 text-purple-600">
-                                     仅限 {children.find(c => c.id === rule.targetChildId)?.name || '未知孩子'}
-                                   </span>
-                                )}
-                              </div>
-                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                           <button onClick={() => setEditingRule(rule)} className="p-2 text-gray-400 hover:text-brand hover:bg-brand-light rounded-xl transition-colors">
-                              <Edit2 size={18} />
-                           </button>
-                           <button onClick={(e) => deleteRule(rule.id, e)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors">
-                              <Trash2 size={18} />
-                           </button>
-                        </div>
-                    </div>
-                  ))}
+               <div className="grid grid-cols-1 gap-4 text-gray-900">
+                  {rules.map(rule => {
+                    const isCompletedForSelected = !rule.isRepeating && allSubmissions.some(s => s.status === 'approved' && s.ruleId === rule.id && s.childId === (rule.targetChildId === 'all' || !rule.targetChildId ? selectedChildId : rule.targetChildId));
+
+                    return (
+                      <div key={rule.id} className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between group">
+                          <div className="flex items-center gap-4">
+                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${isCompletedForSelected ? 'bg-green-50 text-green-500' : 'bg-brand-light text-brand'}`}>
+                                {isCompletedForSelected ? <Check size={24} /> : <Zap size={24} />}
+                             </div>
+                             <div>
+                                <p className={`font-bold ${isCompletedForSelected ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{rule.title}</p>
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                  <span className={`text-[10px] font-black px-2 py-0.5 rounded ${isCompletedForSelected ? 'bg-gray-50 text-gray-400' : 'bg-brand-light text-brand'}`}>+{rule.points} 星币</span>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${rule.isRepeating ? 'bg-blue-50 text-blue-500' : 'bg-orange-50 text-orange-500'}`}>
+                                    {rule.isRepeating ? '日常规则' : '特别加分'}
+                                  </span>
+                                  {rule.targetChildId && rule.targetChildId !== 'all' && (
+                                     <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-50 text-purple-600">
+                                       仅限 {children.find(c => c.id === rule.targetChildId)?.name || '未知孩子'}
+                                     </span>
+                                  )}
+                                  {isCompletedForSelected && (
+                                     <span className="text-[10px] font-black px-2 py-0.5 rounded bg-green-100 text-green-600 animate-pulse">
+                                       已达成 ✨
+                                     </span>
+                                  )}
+                                </div>
+                             </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                             {isCompletedForSelected && (
+                               <button 
+                                 onClick={() => reactivateRule(rule.id, (rule.targetChildId === 'all' || !rule.targetChildId) ? (selectedChildId || '') : (rule.targetChildId || ''))}
+                                 className="p-2 text-gray-400 hover:text-green-500 hover:bg-green-50 rounded-xl transition-colors"
+                                 title="重新激活"
+                               >
+                                 <RotateCw size={18} />
+                               </button>
+                             )}
+                             <button onClick={() => setEditingRule(rule)} className="p-2 text-gray-400 hover:text-brand hover:bg-brand-light rounded-xl transition-colors">
+                                <Edit2 size={18} />
+                             </button>
+                             <button onClick={(e) => deleteRule(rule.id, e)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors">
+                                <Trash2 size={18} />
+                             </button>
+                          </div>
+                      </div>
+                    );
+                  })}
                </div>
             </motion.div>
           )}
 
           {activeTab === 'redemptions' && (
             <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-8">
-               <div className="flex items-center justify-between">
-                  <h1 className="text-3xl font-black text-gray-900 tracking-tight">愿望兑换审批</h1>
+               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight truncate">愿望兑换审批</h1>
                   <button 
                     onClick={() => fetchData()}
-                    className="flex items-center gap-2 text-brand font-bold hover:bg-brand-light px-4 py-2 rounded-xl transition-colors"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 text-brand font-bold bg-brand-light/50 hover:bg-brand-light px-6 py-3 rounded-2xl transition-all active:scale-95 shrink-0"
                   >
                     <RotateCw size={18} />
-                    <span>刷新</span>
+                    <span className="whitespace-nowrap">刷新列表</span>
                   </button>
                </div>
 
@@ -809,33 +1052,46 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                        {records.filter(r => r.status === 'pending').map(record => {
                          const reward = rewards.find(rw => rw.id === record.rewardId);
                          const applicant = children.find(c => c.id === record.childId);
+                         const canApprove = applicant && applicant.points >= (reward?.pointsRequired || 0);
                          return (
-                           <div key={record.id} className="bg-white p-6 rounded-[2.5rem] border-2 border-secondary-light shadow-sm flex items-center justify-between">
-                              <div className="flex items-center gap-5">
-                                 <div className="w-14 h-14 bg-secondary-light text-secondary rounded-2xl flex items-center justify-center">
-                                    <Gift size={28} />
+                           <div key={record.id} className="bg-white p-5 sm:p-6 rounded-[2.5rem] border-2 border-secondary-light shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                              <div className="flex items-center gap-4 sm:gap-5 min-w-0 flex-1">
+                                 <div className="w-12 h-12 sm:w-14 sm:h-14 bg-secondary-light text-secondary rounded-2xl flex items-center justify-center shrink-0 overflow-hidden">
+                                    <img 
+                                      src={`https://picsum.photos/seed/${record.rewardId}/200/200`} 
+                                      alt={record.rewardTitle}
+                                      className="w-full h-full object-cover"
+                                      referrerPolicy="no-referrer"
+                                    />
                                  </div>
                                  <div>
-                                    <p className="text-xl font-bold text-gray-900">{record.rewardTitle}</p>
+                                    <p className="text-lg sm:text-xl font-bold text-gray-900 truncate">{record.rewardTitle}</p>
                                     <div className="flex items-center gap-3 mt-1">
                                        <span className="text-xs font-black text-secondary bg-secondary-light px-2 py-0.5 rounded">
                                          需 {reward?.pointsRequired || '?'} 星币
                                        </span>
-                                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{applicant?.name} 的申请</span>
+                                       {children.length > 1 && <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{applicant?.name} 的申请</span>}
                                     </div>
                                  </div>
                               </div>
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-3 sm:shrink-0 self-end sm:self-auto w-full sm:w-auto mt-2 sm:mt-0">
+                                 <button 
+                                   onClick={() => setRedemptionToReject(record)}
+                                   className="px-6 h-12 rounded-2xl font-black text-sm text-red-500 bg-red-50 hover:bg-red-500 hover:text-white transition-all active:scale-95 whitespace-nowrap flex items-center justify-center gap-2 group"
+                                 >
+                                   <X size={18} className="transition-transform group-hover:rotate-90" /><span>不同意</span>
+                                 </button>
                                  <button 
                                    onClick={() => approveRedemption(record)}
-                                   disabled={applicant && applicant.points < (reward?.pointsRequired || 0)}
-                                   className={`px-8 h-12 rounded-2xl font-black text-lg transition-all shadow-lg active:scale-95 ${
-                                     applicant && applicant.points >= (reward?.pointsRequired || 0)
-                                     ? 'bg-secondary text-white shadow-secondary-light hover:bg-secondary-hover'
+                                   disabled={!canApprove}
+                                   className={`flex-1 sm:px-8 h-12 rounded-2xl font-black text-sm sm:text-lg transition-all active:scale-95 whitespace-nowrap flex items-center justify-center gap-2 group ${
+                                     canApprove
+                                     ? 'bg-secondary text-white shadow-[0_8px_20px_-4px_rgba(245,158,11,0.4)] hover:shadow-[0_12px_25px_-4px_rgba(245,158,11,0.5)] hover:bg-secondary-hover hover:-translate-y-0.5'
                                      : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
                                    }`}
                                  >
-                                   {applicant && applicant.points >= (reward?.pointsRequired || 0) ? '准许兑换' : '积分不足'}
+                                   {canApprove && <Check size={18} className="transition-transform group-hover:scale-125" />}
+                                   <span>{canApprove ? '准许兑换' : '积分不足'}</span>
                                  </button>
                               </div>
                            </div>
@@ -848,6 +1104,134 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                     </div>
                   )}
                </section>
+            </motion.div>
+          )}
+
+          {activeTab === 'growth_manage' && (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-6">
+               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                  <div>
+                    <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">成长足迹管理</h1>
+                    <p className="text-sm text-gray-500 font-medium">查看并管理孩子们的成长记录</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {children.length > 1 && (
+                      <CustomSelect 
+                        value={growthFilterChildId}
+                        onChange={(val) => { setGrowthFilterChildId(val); setGrowthPage(1); }}
+                        options={[{ id: 'all', label: '所有孩子' }, ...children.map(c => ({ id: c.id, label: c.name }))]}
+                        className="min-w-[140px]"
+                      />
+                    )}
+                    <button 
+                      onClick={() => fetchGrowthHistory()}
+                      className="p-4 bg-gray-50 text-gray-400 hover:text-brand rounded-[1.25rem] transition-all shadow-sm border border-transparent hover:border-brand/20"
+                    >
+                      <RotateCw size={18} />
+                    </button>
+                  </div>
+               </div>
+
+               <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-gray-50/50 border-b border-gray-50">
+                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">时间</th>
+                          {children.length > 1 && <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">孩子</th>}
+                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">记录类型</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">状态</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">内容</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">星币变动</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {growthHistory.length > 0 ? (
+                          growthHistory.map((item) => (
+                            <tr key={item.id} className={`hover:bg-gray-50/30 transition-colors ${item.status === 'rejected' ? 'opacity-60' : ''}`}>
+                              <td className="px-6 py-4">
+                                <p className="text-xs font-bold text-gray-500 whitespace-nowrap">
+                                  {new Date(item.timestamp).toLocaleDateString()}
+                                  <br />
+                                  <span className="font-medium opacity-60">{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                </p>
+                              </td>
+                              {children.length > 1 && (
+                                <td className="px-6 py-4">
+                                  <span className="text-sm font-black text-gray-900 whitespace-nowrap">
+                                    {children.find(c => c.id === item.childId)?.name || '未知孩子'}
+                                  </span>
+                                </td>
+                              )}
+                              <td className="px-6 py-4">
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider whitespace-nowrap ${
+                                  item.type === 'task' ? 'bg-brand-light text-brand' : 'bg-secondary-light text-secondary'
+                                }`}>
+                                  {item.type === 'task' ? '获得奖励' : '兑换星愿'}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider whitespace-nowrap ${
+                                  item.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                }`}>
+                                  {item.status === 'approved' ? '已通过' : '被拒绝'}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 min-w-[200px]">
+                                <p className="text-sm font-bold text-gray-800 line-clamp-1">{item.title}</p>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`text-sm font-black whitespace-nowrap ${
+                                  item.status === 'rejected' ? 'text-gray-400' : (item.points > 0 ? 'text-brand' : 'text-secondary')
+                                }`}>
+                                  {item.status === 'rejected' ? '0' : (item.points > 0 ? `+${item.points}` : item.points)}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <button 
+                                  onClick={() => deleteHistoryItem(item)}
+                                  className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={6} className="px-6 py-12 text-center text-gray-400 font-bold italic text-sm">
+                              暂无足迹记录
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {growthTotal > growthLimit && (
+                    <div className="p-6 border-t border-gray-50 flex items-center justify-between">
+                       <p className="text-xs font-bold text-gray-400">共 {growthTotal} 条记录</p>
+                       <div className="flex items-center gap-2">
+                          <button 
+                            disabled={growthPage === 1}
+                            onClick={() => setGrowthPage(p => Math.max(1, p - 1))}
+                            className="w-10 h-10 rounded-xl border border-gray-100 flex items-center justify-center text-gray-400 disabled:opacity-30 hover:bg-gray-50 transition-all font-black text-sm"
+                          >
+                            <Calendar size={18} className="rotate-90" /> {/* Just a proxy for left arrow if not available */}
+                          </button>
+                          <span className="text-sm font-black px-4">{growthPage}</span>
+                          <button 
+                            disabled={growthPage * growthLimit >= growthTotal}
+                            onClick={() => setGrowthPage(p => p + 1)}
+                            className="w-10 h-10 rounded-xl border border-gray-100 flex items-center justify-center text-gray-400 disabled:opacity-30 hover:bg-gray-50 transition-all font-black text-sm"
+                          >
+                             <ChevronRight size={18} />
+                          </button>
+                       </div>
+                    </div>
+                  )}
+               </div>
             </motion.div>
           )}
 
@@ -880,22 +1264,27 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
           {activeTab === 'rewards_manage' && (
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6 text-gray-900">
-               <div className="flex items-center justify-between">
-                  <h1 className="text-3xl font-black text-gray-900 tracking-tight">奖励项目管理</h1>
+               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight truncate">奖励项目管理</h1>
                   <button 
                     onClick={() => setShowAddReward(true)}
-                    className="flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-2xl font-bold shadow-lg shadow-brand-light hover:bg-brand-hover transition-colors"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 bg-brand text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-brand-light hover:bg-brand-hover transition-all active:scale-95 shrink-0"
                   >
                     <Plus size={20} />
-                    <span>添加奖励</span>
+                    <span className="whitespace-nowrap">添加奖励</span>
                   </button>
                </div>
-               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+               <div className="grid grid-cols-1 gap-4">
                   {rewards.map(item => (
                     <div key={item.id} className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
                        <div className="flex items-center gap-4">
-                          <div className="w-16 h-16 bg-brand-light text-brand rounded-2xl flex items-center justify-center flex-shrink-0">
-                             <Gift size={32} />
+                          <div className="w-16 h-16 bg-brand-light text-brand rounded-2xl flex items-center justify-center flex-shrink-0 overflow-hidden">
+                             <img 
+                               src={`https://picsum.photos/seed/${item.id}/200/200`} 
+                               alt={item.title}
+                               className="w-full h-full object-cover"
+                               referrerPolicy="no-referrer"
+                             />
                           </div>
                           <div>
                              <p className="font-bold text-gray-800 flex items-center gap-2">
@@ -926,6 +1315,156 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
       </div>
 
       <AnimatePresence>
+        {showChangePassword && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowChangePassword(false)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-[2.5rem] p-8 max-w-md w-full relative z-10 shadow-2xl">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 bg-brand-light text-brand rounded-2xl flex items-center justify-center">
+                  <Lock size={24} />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black text-gray-900 leading-none">重置成员密码</h2>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-2">
+                    正在为 {familyMembers.find(m => m.id === selectedChildId)?.name} 修改
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-2 px-2">新密码</label>
+                  <input 
+                    type="password" 
+                    className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 focus:ring-2 focus:ring-brand" 
+                    placeholder="请输入新密码" 
+                    value={changedPassword} 
+                    onChange={(e) => setChangedPassword(e.target.value)} 
+                  />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button onClick={() => setShowChangePassword(false)} className="flex-1 py-4 font-bold text-gray-400">取消</button>
+                  <button onClick={updateChildPassword} className="flex-2 py-4 bg-brand text-white rounded-2xl font-black shadow-lg shadow-brand-light hover:bg-brand-hover active:scale-95 transition-all">确认重置</button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showAddReward && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddReward(false)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-[2.5rem] p-8 max-w-md w-full relative z-10 shadow-2xl">
+              <h2 className="text-2xl font-black mb-6 text-gray-900">发布新的愿望</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">愿望名称</label>
+                  <input type="text" className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" placeholder="如：买一套乐高" value={newReward.title} onChange={(e) => setNewReward({...newReward, title: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">所需积分</label>
+                  <input type="number" className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" value={newReward.pointsRequired} onChange={(e) => setNewReward({...newReward, pointsRequired: parseInt(e.target.value)})} />
+                </div>
+                {children.length > 1 && (
+                  <div>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">适用对象</label>
+                    <CustomSelect 
+                      value={newReward.targetChildId}
+                      onChange={(val) => setNewReward({...newReward, targetChildId: val})}
+                      options={[{ id: 'all', label: '所有人' }, ...children.map(c => ({ id: c.id, label: c.name }))]}
+                    />
+                  </div>
+                )}
+                <button onClick={addReward} className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4">确认发布</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {editingReward && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEditingReward(null)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-[2.5rem] p-8 max-w-md w-full relative z-10 shadow-2xl">
+              <h2 className="text-2xl font-black mb-6 text-gray-900">编辑愿望</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">愿望名称</label>
+                  <input type="text" className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" value={editingReward.title} onChange={(e) => setEditingReward({...editingReward, title: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">所需积分</label>
+                  <input type="number" className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" value={editingReward.pointsRequired} onChange={(e) => setEditingReward({...editingReward, pointsRequired: parseInt(e.target.value)})} />
+                </div>
+                {children.length > 1 && (
+                  <div>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">适用对象</label>
+                    <CustomSelect 
+                      value={editingReward.targetChildId || 'all'}
+                      onChange={(val) => setEditingReward({...editingReward, targetChildId: val})}
+                      options={[{ id: 'all', label: '所有人' }, ...children.map(c => ({ id: c.id, label: c.name }))]}
+                    />
+                  </div>
+                )}
+                <button onClick={updateReward} className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4">保存修改</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {editingRule && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEditingRule(null)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-[2.5rem] p-8 max-w-md w-full relative z-10 shadow-2xl">
+              <h2 className="text-2xl font-black mb-6 text-gray-900">编辑任务规则</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">任务名称</label>
+                  <input type="text" className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" value={editingRule.title} onChange={(e) => setEditingRule({...editingRule, title: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">奖励数值 (星币)</label>
+                  <input type="number" className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" value={editingRule.points} onChange={(e) => setEditingRule({...editingRule, points: parseInt(e.target.value)})} />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">规则类型</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => setEditingRule({...editingRule, isRepeating: true})}
+                      className={`py-3 rounded-xl font-bold text-xs transition-all ${editingRule.isRepeating ? 'bg-brand text-white shadow-md' : 'bg-gray-50 text-gray-400'}`}
+                    >
+                      日常加分
+                    </button>
+                    <button 
+                      onClick={() => setEditingRule({...editingRule, isRepeating: false})}
+                      className={`py-3 rounded-xl font-bold text-xs transition-all ${!editingRule.isRepeating ? 'bg-brand text-white shadow-md' : 'bg-gray-50 text-gray-400'}`}
+                    >
+                      一次性成就
+                    </button>
+                  </div>
+                </div>
+                {children.length > 1 && (
+                  <div>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">适用对象</label>
+                    <CustomSelect 
+                      value={editingRule.targetChildId || 'all'}
+                      onChange={(val) => setEditingRule({...editingRule, targetChildId: val})}
+                      options={[{ id: 'all', label: '所有人' }, ...children.map(c => ({ id: c.id, label: c.name }))]}
+                    />
+                  </div>
+                )}
+                <button onClick={updateRule} className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4">保存规则</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {showAddRule && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddRule(false)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
@@ -940,6 +1479,33 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">奖励数值 (星币)</label>
                   <input type="number" className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold focus:ring-2 focus:ring-brand text-gray-900" value={newRule.points} onChange={(e) => setNewRule({...newRule, points: parseInt(e.target.value)})} />
                 </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">规则类型</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => setNewRule({...newRule, isRepeating: true})}
+                      className={`py-3 rounded-xl font-bold text-xs transition-all ${newRule.isRepeating ? 'bg-brand text-white shadow-md' : 'bg-gray-50 text-gray-400'}`}
+                    >
+                      日常加分 (每日可领)
+                    </button>
+                    <button 
+                      onClick={() => setNewRule({...newRule, isRepeating: false})}
+                      className={`py-3 rounded-xl font-bold text-xs transition-all ${!newRule.isRepeating ? 'bg-brand text-white shadow-md' : 'bg-gray-50 text-gray-400'}`}
+                    >
+                      一次性成就
+                    </button>
+                  </div>
+                </div>
+                {children.length > 1 && (
+                  <div>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">适用对象</label>
+                    <CustomSelect 
+                      value={newRule.targetChildId}
+                      onChange={(val) => setNewRule({...newRule, targetChildId: val})}
+                      options={[{ id: 'all', label: '所有人' }, ...children.map(c => ({ id: c.id, label: c.name }))]}
+                    />
+                  </div>
+                )}
                 <button onClick={addRule} className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4">确认添加</button>
               </div>
             </motion.div>
@@ -1002,21 +1568,51 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {redemptionToReject && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setRedemptionToReject(null); setRejectionReasonInput(''); }} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full relative z-10 shadow-2xl">
+              <h2 className="text-2xl font-black text-gray-900 mb-2">不同意兑换？</h2>
+              <p className="text-sm font-bold text-gray-400 mb-6 uppercase tracking-widest leading-relaxed text-center sm:text-left">让孩子知道这次不能兑换的原因吧</p>
+              <textarea 
+                className="w-full bg-gray-50 border-none rounded-2xl p-5 font-bold text-gray-900 outline-none focus:ring-2 focus:ring-red-400 transition-all mb-6 min-h-[120px] resize-none"
+                placeholder="例如：最近的学习表现还需要继续观察哦，再坚持一周就能兑换啦！"
+                value={rejectionReasonInput}
+                onChange={(e) => setRejectionReasonInput(e.target.value)}
+              />
+              <div className="flex gap-4">
+                <button onClick={() => { setRedemptionToReject(null); setRejectionReasonInput(''); }} className="flex-1 py-4 font-bold text-gray-400">取消</button>
+                <button onClick={rejectRedemption} className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-black shadow-lg shadow-red-200 active:scale-95 transition-all">确认拒绝</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Mobile Tab Bar */}
-      <div className="lg:hidden fixed bottom-6 left-6 right-6 bg-white/80 backdrop-blur-md border border-gray-100 px-6 py-4 flex items-center justify-between z-50 rounded-[2.5rem] shadow-2xl overflow-x-auto no-scrollbar gap-4">
-         {[
-          { id: 'dashboard', icon: Layout },
-          { id: 'task_approval', icon: CheckCircle },
-          { id: 'rules', icon: Zap },
-          { id: 'rewards_manage', icon: Gift },
-          { id: 'redemptions', icon: Check },
-          { id: 'analysis', icon: PieChart },
-          { id: 'family_manage', icon: Settings }
-        ].map(item => (
-          <button key={item.id} onClick={() => setActiveTab(item.id)} className={`p-3 rounded-2xl transition-all shrink-0 ${activeTab === item.id ? 'bg-brand text-white shadow-lg' : 'text-gray-400'}`}>
-            <item.icon size={24} />
-          </button>
-        ))}
+      <div className="lg:hidden fixed bottom-6 left-6 right-6 bg-white/95 backdrop-blur-lg border border-gray-100 p-2 z-50 rounded-[2.5rem] shadow-2xl overflow-x-auto no-scrollbar flex justify-start">
+         <div className="flex items-center gap-2 px-4 py-1 shrink-0 w-max">
+           {[
+            { id: 'dashboard', icon: LayoutDashboard },
+            { id: 'task_approval', icon: CheckCircle },
+            { id: 'rules', icon: Zap },
+            { id: 'rewards_manage', icon: Gift },
+            { id: 'redemptions', icon: Check },
+            { id: 'growth_manage', icon: Activity },
+            { id: 'analysis', icon: PieChart },
+            { id: 'family_manage', icon: Settings }
+          ].map(item => (
+            <button 
+              key={item.id} 
+              onClick={() => setActiveTab(item.id)} 
+              className={`p-4 rounded-2xl transition-all flex items-center justify-center ${activeTab === item.id ? 'bg-brand text-white shadow-lg shadow-brand/20' : 'text-gray-400 active:bg-gray-50'}`}
+            >
+              <item.icon size={22} />
+            </button>
+          ))}
+          <div className="w-6 shrink-0" />
+         </div>
       </div>
     </div>
   );

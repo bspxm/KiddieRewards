@@ -65,8 +65,9 @@ export interface AppNotification {
   userId: string;
   title: string;
   message: string;
-  type: 'success' | 'error' | 'info';
+  type: 'success' | 'error' | 'info' | 'wish_granted';
   isRead: number;
+  metadata?: string;
   timestamp: number;
 }
 

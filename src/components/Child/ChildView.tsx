@@ -25,6 +25,7 @@ import {
   TaskSubmission, 
   AppNotification 
 } from '../../types';
+import { requestNotificationPermission, sendBrowserNotification } from '../../lib/notificationHelper';
 
 export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null }) => {
   const [activeTab, setActiveTab ] = useState('rewards');
@@ -34,11 +35,14 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
   const [rejectedTasks, setRejectedTasks] = useState<TaskSubmission[]>([]);
   const [localPoints, setLocalPoints] = useState(user.points);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
+  const [successToastType, setSuccessToastType] = useState<'task' | 'redemption'>('task');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotifCenter, setShowNotifCenter] = useState(false);
-  const [showCelebration, setShowCelebration] = useState(false);
+  const [showCelebration, setShowCelebration ] = useState(false);
   const [celebratedReward, setCelebratedReward] = useState<RewardItem | null>(null);
+  const [showAchievementCelebration, setShowAchievementCelebration] = useState(false);
+  const [celebratedAchievement, setCelebratedAchievement] = useState<{title: string, ruleId: string} | null>(null);
   const [redemptions, setRedemptions] = useState<RedemptionRecord[]>([]);
   const [allSubmissions, setAllSubmissions] = useState<TaskSubmission[]>([]);
   const [showPointsIncrease, setShowPointsIncrease] = useState(false);
@@ -92,8 +96,11 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
       }
       localStorage.setItem(`kiddie_last_points_${user.id}`, newPoints.toString());
       setLocalPoints(newPoints);
+
+      return { rewards: rewardsData, notifications: notifsData };
     } catch (error) {
       console.error("Child fetchData Error:", error);
+      return null;
     }
   };
 
@@ -120,6 +127,7 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
           title: `${rule.title} (申请确认)` 
         })
       });
+      setSuccessToastType('task');
       setShowSuccessToast(true);
       setTimeout(() => setShowSuccessToast(false), 3000);
       fetchData();
@@ -130,26 +138,76 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
 
   useEffect(() => {
     fetchData();
+    requestNotificationPermission();
   }, [user]);
 
   useEffect(() => {
-    if (!socket) return;
-    const handleUpdate = () => fetchData();
-    socket.on('task_approved', handleUpdate);
-    socket.on('task_rejected', handleUpdate);
-    socket.on('new_notification', (data) => {
-      if (data.userId === user.id) {
-        fetchData();
+    if (notifications.length > 0) {
+      const hasUnread = notifications.some(n => !n.isRead);
+      if (hasUnread) {
+        const latestNotif = notifications[0]; // Assuming newest is first
+        const lastNotifiedId = localStorage.getItem(`last_notified_child_${user.id}`);
+        
+        if (lastNotifiedId !== latestNotif.id && !latestNotif.isRead) {
+          sendBrowserNotification(latestNotif.title, {
+            body: latestNotif.message,
+            tag: latestNotif.id
+          });
+          localStorage.setItem(`last_notified_child_${user.id}`, latestNotif.id);
+        }
       }
-    });
-    return () => {
-      socket.off('task_approved', handleUpdate);
-      socket.off('task_rejected', handleUpdate);
-      socket.off('new_notification');
-    };
-  }, [socket]);
+    }
+  }, [notifications, user.id]);
 
-  const markNotifsRead = async () => {
+  useEffect(() => {
+    // Real-time auto-fetch disabled per user request
+    if (!socket) return;
+    // socket.on('new_notification', fetchData); // Disabled
+  }, [socket, user.id]);
+
+  const openNotifCenter = async () => {
+    const data = await fetchData();
+    setShowNotifCenter(true);
+    if (data) {
+      markNotifsRead(data.notifications, data.rewards);
+    } else {
+      markNotifsRead();
+    }
+  };
+
+  const markNotifsRead = async (manualNotifs?: AppNotification[], manualRewards?: RewardItem[]) => {
+    const targetNotifs = manualNotifs || notifications;
+    const targetRewards = manualRewards || rewards;
+
+    // Check for unread wish achievements first
+    const unreadWishNotif = targetNotifs.find(n => !n.isRead && n.type === 'wish_granted');
+    const unreadAchievementNotif = targetNotifs.find(n => !n.isRead && n.type === 'achievement_granted');
+
+    if (unreadWishNotif) {
+      try {
+        const metadata = JSON.parse(unreadWishNotif.metadata || '{}');
+        const targetReward = targetRewards.find(r => r.id === metadata.rewardId);
+        if (targetReward) {
+          setCelebratedReward(targetReward);
+          setShowCelebration(true);
+          playCelebrationSound('wish');
+        }
+      } catch (e) {
+        console.error("Error parsing notification metadata:", e);
+      }
+    } else if (unreadAchievementNotif) {
+      try {
+        const metadata = JSON.parse(unreadAchievementNotif.metadata || '{}');
+        if (metadata.title) {
+          setCelebratedAchievement({ title: metadata.title, ruleId: metadata.ruleId });
+          setShowAchievementCelebration(true);
+          playCelebrationSound('achievement');
+        }
+      } catch (e) {
+        console.error("Error parsing achievement notification metadata:", e);
+      }
+    }
+
     await fetch('/api/notifications/read', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -158,14 +216,40 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
     setNotifications(prev => prev.map(n => ({ ...n, isRead: 1 })));
   };
 
+  const playCelebrationSound = (type: 'wish' | 'achievement') => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const playTone = (freq: number, start: number, duration: number) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type === 'wish' ? 'sine' : 'triangle';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + start);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime + start);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + start + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(audioCtx.currentTime + start);
+        osc.stop(audioCtx.currentTime + start + duration);
+      };
+      if (type === 'wish') {
+        playTone(523.25, 0, 0.1); 
+        playTone(659.25, 0.1, 0.1); 
+        playTone(783.99, 0.2, 0.3);
+        playTone(1046.50, 0.4, 0.5);
+      } else {
+        // More robust fanfare for achievement
+        playTone(392.00, 0, 0.1); // G4
+        playTone(392.00, 0.1, 0.1); // G4
+        playTone(523.25, 0.25, 0.4); // C5
+      }
+    } catch (e) {}
+  };
+
   const redeem = async (reward: RewardItem) => {
     if (localPoints < reward.pointsRequired) {
       alert('星币不足哦，再努力积累一点吧！加油！');
       return;
     }
-    
-    setCelebratedReward(reward);
-    setShowCelebration(true);
     
     try {
       await fetch('/api/redemptions', {
@@ -180,29 +264,12 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
         })
       });
       
-      try {
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const playTone = (freq: number, start: number, duration: number) => {
-          const osc = audioCtx.createOscillator();
-          const gain = audioCtx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, audioCtx.currentTime + start);
-          gain.gain.setValueAtTime(0.1, audioCtx.currentTime + start);
-          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + start + duration);
-          osc.connect(gain);
-          gain.connect(audioCtx.destination);
-          osc.start(audioCtx.currentTime + start);
-          osc.stop(audioCtx.currentTime + start + duration);
-        };
-        playTone(523.25, 0, 0.1); // C5
-        playTone(659.25, 0.1, 0.1); // E5
-        playTone(783.99, 0.2, 0.3); // G5
-      } catch (e) { /* ignore audio errors */ }
-      
+      setSuccessToastType('redemption');
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 3000);
       fetchData();
     } catch (error) {
-      alert('兑换出错了，请稍后再试。');
-      setShowCelebration(false);
+      alert('无法提交申请，请稍后再试。');
     }
   };
 
@@ -218,7 +285,7 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
           </p>
         </div>
         <button 
-          onClick={() => { setShowNotifCenter(true); markNotifsRead(); }}
+          onClick={openNotifCenter}
           className="w-16 h-16 bg-white border-2 border-gray-100 rounded-[1.8rem] shadow-sm flex items-center justify-center relative hover:shadow-xl hover:border-brand-light transition-all active:scale-95"
         >
           <Bell size={28} className={notifications.some(n => !n.isRead) ? "text-brand animate-bounce" : "text-gray-400"} />
@@ -236,12 +303,12 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
             initial={{ opacity: 0, y: -20, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.9 }}
-            className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-brand text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 font-bold"
+            className={`fixed top-20 left-1/2 -translate-x-1/2 z-[100] ${successToastType === 'redemption' ? 'bg-secondary' : 'bg-brand'} text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 font-bold`}
           >
             <div className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center">
-              <Check size={16} />
+              {successToastType === 'redemption' ? <Gift size={16} /> : <Check size={16} />}
             </div>
-            <span>任务已提交，等爸爸妈妈确认哦！</span>
+            <span>{successToastType === 'redemption' ? '愿望申请已送达，等爸爸妈妈点头哦！' : '任务已提交，等爸爸妈妈确认哦！'}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -275,18 +342,18 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
           </div>
         </motion.div>
 
-        <div className="grid grid-cols-2 gap-4">
-           <button onClick={() => setActiveTab('rewards')} className={`flex flex-col items-center justify-center rounded-[2rem] border-2 transition-all ${activeTab === 'rewards' ? 'bg-white border-brand shadow-xl shadow-brand-light' : 'bg-gray-50 border-transparent text-gray-400'}`}>
+        <div className="flex flex-wrap justify-center gap-4">
+           <button onClick={() => setActiveTab('rewards')} className={`flex-1 min-w-[140px] flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all ${activeTab === 'rewards' ? 'bg-white border-brand shadow-xl shadow-brand-light' : 'bg-gray-50 border-transparent text-gray-400'}`}>
               <Gift size={32} className={activeTab === 'rewards' ? 'text-brand' : ''} />
-              <span className="font-black mt-2 text-sm">愿望单</span>
+              <span className="font-black mt-2 text-sm text-center">愿望单</span>
            </button>
-           <button onClick={() => setActiveTab('history')} className={`flex flex-col items-center justify-center rounded-[2rem] border-2 transition-all ${activeTab === 'history' ? 'bg-white border-brand shadow-xl shadow-brand-light' : 'bg-gray-50 border-transparent text-gray-400'}`}>
+           <button onClick={() => setActiveTab('history')} className={`flex-1 min-w-[140px] flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all ${activeTab === 'history' ? 'bg-white border-brand shadow-xl shadow-brand-light' : 'bg-gray-50 border-transparent text-gray-400'}`}>
               <History size={32} className={activeTab === 'history' ? 'text-brand' : ''} />
-              <span className="font-black mt-2 text-sm">成长足迹</span>
+              <span className="font-black mt-2 text-sm text-center">成长足迹</span>
            </button>
-           <button onClick={() => setActiveTab('tasks')} className={`flex flex-col items-center justify-center rounded-[2rem] border-2 transition-all ${activeTab === 'tasks' ? 'bg-white border-brand shadow-xl shadow-brand-light' : 'bg-gray-50 border-transparent text-gray-400'}`}>
+           <button onClick={() => setActiveTab('tasks')} className={`flex-1 min-w-[140px] flex flex-col items-center justify-center p-6 rounded-[2rem] border-2 transition-all ${activeTab === 'tasks' ? 'bg-white border-brand shadow-xl shadow-brand-light' : 'bg-gray-50 border-transparent text-gray-400'}`}>
               <Zap size={32} className={activeTab === 'tasks' ? 'text-brand' : ''} />
-              <span className="font-black mt-2 text-sm">做任务</span>
+              <span className="font-black mt-2 text-sm text-center">做任务</span>
            </button>
         </div>
       </div>
@@ -300,8 +367,14 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
                 const pendingSubmission = ruleSubmissions.find(s => s.status === 'pending');
                 const latestSubmission = ruleSubmissions.sort((a, b) => b.timestamp - a.timestamp)[0];
                 const isRejectedToday = latestSubmission?.status === 'rejected' && new Date(latestSubmission.timestamp).toDateString() === new Date().toDateString();
+                
+                // Success criteria based on rule type
                 const isApprovedToday = ruleSubmissions.some(s => s.status === 'approved' && new Date(s.timestamp).toDateString() === new Date().toDateString());
-                const isRuleDisabled = submittingId === rule.id || !!pendingSubmission || isRejectedToday || isApprovedToday;
+                const isCompletedEver = ruleSubmissions.some(s => s.status === 'approved');
+                
+                // Rule disabling logic
+                const isAlreadyClaimed = rule.isRepeating ? isApprovedToday : isCompletedEver;
+                const isRuleDisabled = submittingId === rule.id || !!pendingSubmission || isRejectedToday || isAlreadyClaimed;
 
                 return (
                 <button 
@@ -344,8 +417,10 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
                         <span className="text-xs font-black uppercase tracking-widest bg-gray-200 text-gray-500 px-3 py-1.5 rounded-full whitespace-nowrap">审核中</span>
                       ) : isRejectedToday ? (
                         <span className="text-xs font-black uppercase tracking-widest bg-red-50 text-red-500 px-3 py-1.5 rounded-full whitespace-nowrap">未通过</span>
-                      ) : isApprovedToday ? (
-                        <span className="text-xs font-black uppercase tracking-widest bg-green-50 text-green-600 px-3 py-1.5 rounded-full whitespace-nowrap border border-green-100">今日已完成</span>
+                      ) : isAlreadyClaimed ? (
+                        <span className="text-xs font-black uppercase tracking-widest bg-green-50 text-green-600 px-3 py-1.5 rounded-full whitespace-nowrap border border-green-100">
+                          {rule.isRepeating ? '今日已完成' : '已达成成就'}
+                        </span>
                       ) : (
                         <Check size={20} />
                       )}
@@ -367,7 +442,12 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
                       </div>
                     )}
                     <div className="w-full aspect-video bg-brand-light text-brand/30 rounded-2xl flex items-center justify-center overflow-hidden">
-                       <Gift size={80} className="group-hover:scale-110 group-hover:text-brand/50 transition-all duration-300" />
+                       <img 
+                         src={`https://picsum.photos/seed/${item.id}/600/400`} 
+                         alt={item.title}
+                         className="w-full h-full object-cover group-hover:scale-110 transition-all duration-700"
+                         referrerPolicy="no-referrer"
+                       />
                     </div>
                     <div>
                       <h3 className="text-xl font-black text-gray-900 leading-tight">{item.title}</h3>
@@ -451,6 +531,15 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
                   </button>
                 </div>
                 <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
+                   {('Notification' in window && Notification.permission !== 'granted') && (
+                     <button 
+                       onClick={() => requestNotificationPermission().then(() => fetchData())}
+                       className="w-full p-4 bg-brand-light text-brand rounded-2xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-brand hover:text-white transition-all"
+                     >
+                       <Bell size={16} />
+                       开启浏览器实时通知
+                     </button>
+                   )}
                    {notifications.map(notif => (
                      <div key={notif.id} className={`p-5 rounded-[2rem] border ${notif.isRead ? 'bg-gray-50/50 border-gray-100' : 'bg-white border-brand-light shadow-sm'}`}>
                         <p className="font-black text-sm text-gray-900 mb-1">{notif.title}</p>
@@ -470,15 +559,81 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
             className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-brand/90 backdrop-blur-xl"
           >
             <motion.div initial={{ scale: 0.5, y: 100 }} animate={{ scale: 1, y: 0 }} className="bg-white rounded-[4rem] p-12 max-w-lg w-full text-center shadow-2xl relative">
-              <PartyPopper size={80} className="mx-auto text-brand mb-6" />
-              <h2 className="text-4xl font-black text-gray-900 mb-2">哇！太棒了！</h2>
-              <p className="text-brand font-black text-xl mb-8">成功兑换了 {celebratedReward.title}</p>
+              <div className="relative mb-6">
+                 <div className="w-32 h-32 mx-auto rounded-3xl overflow-hidden shadow-xl border-4 border-white">
+                    <img 
+                      src={`https://picsum.photos/seed/${celebratedReward.id}/400/400`} 
+                      alt={celebratedReward.title}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                 </div>
+                 <motion.div 
+                   animate={{ scale: [1, 1.2, 1], rotate: [0, 10, -10, 0] }}
+                   transition={{ repeat: Infinity, duration: 2 }}
+                   className="absolute -top-4 -right-4 bg-yellow-400 p-3 rounded-2xl text-white shadow-lg"
+                 >
+                    <Sparkles size={24} />
+                 </motion.div>
+              </div>
+              <h2 className="text-4xl font-black text-gray-900 mb-2">好消息！</h2>
+              <p className="text-brand font-black text-xl mb-8">爸爸妈妈同意啦！快去领取你的 <span className="text-secondary underline decoration-4 underline-offset-4">{celebratedReward.title}</span> 吧！</p>
               <button 
                 onClick={() => setShowCelebration(false)}
-                className="w-full bg-brand text-white py-6 rounded-[2.2rem] font-black text-2xl"
+                className="w-full bg-brand text-white py-6 rounded-[2.2rem] font-black text-2xl shadow-xl hover:brightness-110 active:scale-95 transition-all"
               >
-                知道啦！
+                太棒了，出发！
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {showAchievementCelebration && celebratedAchievement && (
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-orange-500/95 backdrop-blur-[20px]"
+          >
+            <motion.div initial={{ scale: 0.8, rotate: -5 }} animate={{ scale: 1, rotate: 0 }} className="bg-white rounded-[4rem] p-10 max-w-lg w-full text-center shadow-[0_32px_64px_-16px_rgba(0,0,0,0.3)] relative overflow-hidden">
+               {/* Background shine effect */}
+               <div className="absolute inset-0 bg-gradient-to-tr from-orange-50 to-white opacity-50 -z-10" />
+               <motion.div 
+                 animate={{ rotate: 360 }}
+                 transition={{ repeat: Infinity, duration: 10, ease: "linear" }}
+                 className="absolute -top-20 -left-20 w-80 h-80 bg-orange-200/20 rounded-full blur-3xl -z-10"
+               />
+
+               <div className="relative mb-8 pt-4">
+                  <motion.div
+                    animate={{ y: [0, -15, 0] }}
+                    transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                    className="relative z-10"
+                  >
+                    <Trophy size={100} className="mx-auto text-orange-500" strokeWidth={2.5} />
+                  </motion.div>
+                  
+                  {/* Floating sparkles */}
+                  <motion.div animate={{ scale: [1, 1.5, 1], opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5, delay: 0.2 }} className="absolute top-0 right-1/4 text-yellow-500">
+                    <Sparkles size={24} />
+                  </motion.div>
+                  <motion.div animate={{ scale: [1, 1.5, 1], opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5, delay: 0.7 }} className="absolute bottom-4 left-1/4 text-yellow-500">
+                    <Sparkles size={20} />
+                  </motion.div>
+               </div>
+
+               <h2 className="text-3xl font-black text-gray-900 mb-2">哇！太牛啦！</h2>
+               <p className="text-gray-500 font-bold text-lg mb-2">你成功解锁了特别成就</p>
+               <div className="bg-orange-50 inline-block px-8 py-4 rounded-3xl mb-8 border-2 border-orange-100">
+                 <h3 className="text-2xl font-black text-orange-600 tracking-tight">{celebratedAchievement.title}</h3>
+               </div>
+
+               <p className="text-gray-400 font-medium mb-10 px-8">每一步努力都被爸爸妈妈看在眼里哦！你真是太棒了！</p>
+               
+               <button 
+                 onClick={() => setShowAchievementCelebration(false)}
+                 className="w-full bg-orange-500 text-white py-6 rounded-[2.2rem] font-black text-2xl shadow-[0_12px_32px_-8px_rgba(249,115,22,0.5)] hover:bg-orange-600 active:scale-95 transition-all"
+               >
+                 收下荣誉！
+               </button>
             </motion.div>
           </motion.div>
         )}

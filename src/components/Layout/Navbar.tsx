@@ -11,6 +11,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { Socket } from 'socket.io-client';
 import { UserProfile } from '../../types';
+import { requestNotificationPermission } from '../../lib/notificationHelper';
 
 export const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode, onSetTheme, currentTheme }: { 
   user: UserProfile | null, 
@@ -26,21 +27,11 @@ export const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode, onSe
   const [showThemeSelector, setShowThemeSelector] = useState(false);
 
   useEffect(() => {
+    // Real-time socket variation disabled per user request
     if (!socket) return;
-    socket.on('points_updated', (data: any) => {
-      setNotifications(prev => [`积分变动通知: ${data.reason}`, ...prev]);
-    });
-    socket.on('new_redemption', (data: any) => {
-      setNotifications(prev => [`有新的奖励兑换申请: ${data.rewardTitle}`, ...prev]);
-    });
-    socket.on('new_task_submission', (data: any) => {
-      setNotifications(prev => [`收到新的任务完成申请: ${data.title}`, ...prev]);
-    });
-    return () => {
-      socket.off('points_updated');
-      socket.off('new_redemption');
-      socket.off('new_task_submission');
-    }
+    // socket.on('points_updated', ...); // Disabled
+    // socket.on('new_redemption', ...); // Disabled
+    // socket.on('new_task_submission', ...); // Disabled
   }, [socket]);
 
   return (
@@ -53,17 +44,13 @@ export const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode, onSe
       </div>
 
       <div className="flex items-center gap-4 sm:gap-6">
-        {onSwitchMode && user?.role === 'parent' && (
+        {onSwitchMode && user?.role === 'parent' && isChildMode && (
           <button 
             onClick={onSwitchMode}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold text-xs transition-all ${
-              isChildMode 
-              ? 'bg-secondary-light text-secondary-hover hover:opacity-80' 
-              : 'bg-brand-light text-brand hover:opacity-80'
-            }`}
+            className="flex items-center gap-2 px-4 py-2 rounded-full font-bold text-xs transition-all bg-secondary-light text-secondary-hover hover:opacity-80"
           >
-            {isChildMode ? <Settings size={14} /> : <Smile size={14} />}
-            <span className="hidden xs:inline">{isChildMode ? '管理模式' : '儿童模式'}</span>
+            <Settings size={14} />
+            <span className="hidden xs:inline">返回管理模式</span>
           </button>
         )}
         <div className="relative">
@@ -106,38 +93,49 @@ export const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode, onSe
           </AnimatePresence>
         </div>
 
-        <div className="relative">
-          <button 
-            onClick={() => { setShowNotif(!showNotif); setShowThemeSelector(false); }}
-            className="p-2 text-gray-400 hover:text-brand hover:bg-brand-light rounded-full transition-colors relative"
-          >
-            <Bell size={20} />
-            {notifications.length > 0 && (
-              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-            )}
-          </button>
-          <AnimatePresence>
-            {showNotif && (
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                className="absolute right-0 mt-2 w-64 bg-white border border-gray-100 rounded-2xl shadow-xl p-4 z-50"
-              >
-                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">通知</h3>
-                {notifications.length === 0 ? (
-                  <p className="text-sm text-gray-500 py-4 text-center">暂无消息</p>
-                ) : (
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {notifications.map((n, i) => (
-                      <p key={i} className="text-sm text-gray-700 bg-gray-50 p-2 rounded-lg">{n}</p>
-                    ))}
-                  </div>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+        {!isChildMode && (
+          <div className="relative">
+            <button 
+              onClick={() => { setShowNotif(!showNotif); setShowThemeSelector(false); }}
+              className="p-2 text-gray-400 hover:text-brand hover:bg-brand-light rounded-full transition-colors relative"
+            >
+              <Bell size={20} />
+              {notifications.length > 0 && (
+                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+              )}
+            </button>
+            <AnimatePresence>
+              {showNotif && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute right-0 mt-2 w-64 bg-white border border-gray-100 rounded-2xl shadow-xl p-4 z-50"
+                >
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">通知</h3>
+                  {('Notification' in window && Notification.permission !== 'granted') && (
+                    <button 
+                      onClick={() => requestNotificationPermission()}
+                      className="w-full mb-3 p-2 bg-brand-light text-brand rounded-xl font-bold text-[10px] flex items-center justify-center gap-2 hover:bg-brand hover:text-white transition-all"
+                    >
+                      <Bell size={12} />
+                      开启浏览器通知
+                    </button>
+                  )}
+                  {notifications.length === 0 ? (
+                    <p className="text-sm text-gray-500 py-4 text-center">暂无消息</p>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {notifications.map((n, i) => (
+                        <p key={i} className="text-sm text-gray-700 bg-gray-50 p-2 rounded-lg">{n}</p>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
 
         <div className="flex items-center gap-3 bg-gray-50 py-1.5 pl-1.5 pr-4 rounded-full border border-gray-100">
           <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-brand shadow-sm font-bold overflow-hidden text-sm">
