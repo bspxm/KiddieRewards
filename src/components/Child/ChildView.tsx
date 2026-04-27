@@ -27,6 +27,7 @@ import {
 } from '../../types';
 import { requestNotificationPermission, sendBrowserNotification } from '../../lib/notificationHelper';
 import { useTabState } from '../../hooks/useTabState';
+import { authFetch } from '../../lib/api';
 
 export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null }) => {
   const [activeTab, setActiveTab] = useTabState<string>('tab', 'rewards');
@@ -52,14 +53,14 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
   const fetchData = async () => {
     try {
       const [resRewards, resHistory, resUser, resRules, resRejected, resNotifs, resRedemptions, resAllSubs] = await Promise.all([
-        fetch(`/api/rewards/${user.parentId}`),
-        fetch(`/api/history/${user.id}`),
-        fetch(`/api/users/${user.id}`),
-        fetch(`/api/rules/${user.parentId}`),
-        fetch(`/api/tasks/rejected/${user.id}`),
-        fetch(`/api/notifications/${user.id}`),
-        fetch(`/api/redemptions/child/${user.id}`),
-        fetch(`/api/tasks/all/${user.id}`)
+        authFetch(`/api/rewards/${user.parentId}`),
+        authFetch(`/api/history/${user.id}`),
+        authFetch(`/api/users/${user.id}`),
+        authFetch(`/api/rules/${user.parentId}`),
+        authFetch(`/api/tasks/rejected/${user.id}`),
+        authFetch(`/api/notifications/${user.id}`),
+        authFetch(`/api/redemptions/child/${user.id}`),
+        authFetch(`/api/tasks/all/${user.id}`)
       ]);
 
       if (!resRewards.ok || !resHistory.ok || !resUser.ok || !resRules.ok || !resRejected.ok || !resNotifs.ok || !resRedemptions.ok || !resAllSubs.ok) {
@@ -116,7 +117,7 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
   const submitTask = async (rule: RewardRule) => {
     setSubmittingId(rule.id);
     try {
-      await fetch('/api/tasks/submit', {
+      await authFetch('/api/tasks/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -209,7 +210,7 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
       }
     }
 
-    await fetch('/api/notifications/read', {
+    await authFetch('/api/notifications/read', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user.id })
@@ -253,7 +254,7 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
     }
     
     try {
-      await fetch('/api/redemptions', {
+      await authFetch('/api/redemptions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -7,7 +7,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { UserProfile } from '../../types';
 
-export const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) => {
+export const LoginView = ({ onLogin }: { onLogin: (u: UserProfile, token?: string) => void }) => {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -31,7 +31,7 @@ export const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) =>
       });
       const data = await res.json();
       if (data.success) {
-        onLogin(data.user);
+        onLogin(data.user, data.token);
       } else {
         setError(data.message || '登录失败，请检查用户名和密码');
       }

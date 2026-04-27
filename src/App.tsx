@@ -44,9 +44,10 @@ export default function App() {
     }
   }, []);
 
-  const handleLogin = (user: UserProfile) => {
+  const handleLogin = (user: UserProfile, token?: string) => {
     setCurrentUser(user);
     localStorage.setItem('kiddie_user', JSON.stringify(user));
+    if (token) localStorage.setItem('kiddie_token', token);
     if (user.role === 'child') {
       setIsChildMode(true);
     }
@@ -56,6 +57,7 @@ export default function App() {
     setCurrentUser(null);
     setIsChildMode(false);
     localStorage.removeItem('kiddie_user');
+    localStorage.removeItem('kiddie_token');
     window.history.pushState({}, '', window.location.pathname);
   };
 

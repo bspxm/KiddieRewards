@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTabState } from '../../hooks/useTabState';
+import { authFetch } from '../../lib/api';
 
 export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
   const [families, setFamilies] = useState<any[]>([]);
@@ -51,7 +52,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
 
     setPwdStatus({ type: 'loading' });
     try {
-      const res = await fetch('/api/admin/change-password', {
+      const res = await authFetch('/api/admin/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -73,7 +74,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
 
   const fetchFamilies = async () => {
     try {
-      const res = await fetch('/api/admin/families');
+      const res = await authFetch('/api/admin/families');
       if (!res.ok) {
         const text = await res.text();
         console.error("API Error Response:", text);
@@ -92,7 +93,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
     setLogsLoading(true);
     setCurrentPage(1); // 筛选更改时重置为第1页
     try {
-      const res = await fetch(`/api/admin/logs?year=${logFilter.year}&month=${logFilter.month}`);
+      const res = await authFetch(`/api/admin/logs?year=${logFilter.year}&month=${logFilter.month}`);
       const data = await res.json();
       setLogs(data);
     } catch (e) {
@@ -113,7 +114,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
   const executeDeleteFamily = async (id: string) => {
     setDeleteError(null);
     try {
-      const res = await fetch(`/api/admin/families/${id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/admin/families/${id}`, { method: 'DELETE' });
       if (!res.ok) {
         const errorData = await res.json();
         throw new Error(errorData.error || '删除失败');
