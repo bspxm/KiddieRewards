@@ -50,6 +50,7 @@ import {
 import { requestNotificationPermission, sendBrowserNotification } from '../../lib/notificationHelper';
 import { CustomSelect } from '../ui/CustomSelect';
 import { useTabState } from '../../hooks/useTabState';
+import { authFetch } from '../../lib/api';
 
 export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, currentTheme }: { 
   user: UserProfile, 
@@ -100,7 +101,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
   const fetchGrowthHistory = async () => {
     try {
-      const res = await fetch(`/api/growth-history/${user.id}?childId=${growthFilterChildId}&page=${growthPage}&limit=${growthLimit}`);
+      const res = await authFetch(`/api/growth-history/${user.id}?childId=${growthFilterChildId}&page=${growthPage}&limit=${growthLimit}`);
       if (res.ok) {
         const data = await res.json();
         setGrowthHistory(data.items);
@@ -115,7 +116,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
     if (!confirm('确定要删除这条足迹吗？此操作不可逆。')) return;
     const url = item.type === 'task' ? `/api/tasks/${item.id}` : `/api/redemptions/${item.id}`;
     try {
-      const res = await fetch(url, { method: 'DELETE' });
+      const res = await authFetch(url, { method: 'DELETE' });
       if (res.ok) {
         fetchGrowthHistory();
       }
@@ -132,7 +133,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
   const addReward = async () => {
     const id = Math.random().toString(36).substr(2, 9);
-    await fetch('/api/rewards', {
+    await authFetch('/api/rewards', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...newReward, id, parentId: user.id })
@@ -144,7 +145,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
   const updateReward = async () => {
     if (!editingReward) return;
-    await fetch(`/api/rewards/${editingReward.id}`, {
+    await authFetch(`/api/rewards/${editingReward.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(editingReward)
@@ -157,14 +158,14 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
   const deleteReward = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm('确定要删除这个愿望吗？')) return;
-    await fetch(`/api/rewards/${id}`, { method: 'DELETE' });
+    await authFetch(`/api/rewards/${id}`, { method: 'DELETE' });
     fetchData();
     if (socket) socket.emit('update_data', { parentId: user.id });
   };
 
   const fetchData = async () => {
     try {
-      const resUsers = await fetch('/api/users');
+      const resUsers = await authFetch('/api/users');
       if (!resUsers.ok) throw new Error(`Users API: ${resUsers.status}`);
       const allUsers = await resUsers.json();
       
@@ -180,11 +181,11 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
       const activeChild = myChildren.find((c: UserProfile) => c.id === (selectedChildId || (myChildren[0]?.id)));
 
       const [resRules, resRecords, resRewards, resTasks, resAllSubmissions] = await Promise.all([
-        fetch(`/api/rules/${user.id}`),
-        fetch(`/api/redemptions/${user.id}`),
-        fetch(`/api/rewards/${user.id}`),
-        fetch(`/api/tasks/pending/${user.id}`),
-        fetch(`/api/tasks/all/${selectedChildId || 'all'}`)
+        authFetch(`/api/rules/${user.id}`),
+        authFetch(`/api/redemptions/${user.id}`),
+        authFetch(`/api/rewards/${user.id}`),
+        authFetch(`/api/tasks/pending/${user.id}`),
+        authFetch(`/api/tasks/all/${selectedChildId || 'all'}`)
       ]);
 
       if (!resRules.ok || !resRecords.ok || !resRewards.ok || !resTasks.ok || !resAllSubmissions.ok) {
@@ -198,7 +199,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
       setAllSubmissions(await resAllSubmissions.json());
 
       if (activeChild) {
-        const resStats = await fetch(`/api/stats/${activeChild.id}`);
+        const resStats = await authFetch(`/api/stats/${activeChild.id}`);
         if (resStats.ok) {
           setStats(await resStats.json());
         }
@@ -210,7 +211,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
   const addMember = async () => {
     if (!newChildName.trim()) return;
-    await fetch('/api/users/add-member', {
+    await authFetch('/api/users/add-member', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
@@ -229,7 +230,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
   const updateChildPassword = async () => {
     if (!selectedChildId || !changedPassword.trim()) return;
-    await fetch('/api/users/update-password', {
+    await authFetch('/api/users/update-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: selectedChildId, newPassword: changedPassword })
@@ -243,7 +244,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
     if (!profileName.trim()) return;
     setIsUpdatingProfile(true);
     try {
-      const res = await fetch('/api/users/update-profile', {
+      const res = await authFetch('/api/users/update-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -265,7 +266,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
   const executeDeleteMember = async () => {
     if (!memberToDelete) return;
     try {
-      const res = await fetch(`/api/users/${memberToDelete.id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/users/${memberToDelete.id}`, { method: 'DELETE' });
       const data = await res.json();
       
       if (!res.ok || !data.success) {
@@ -284,7 +285,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
   const addRule = async () => {
     const id = Math.random().toString(36).substr(2, 9);
-    await fetch('/api/rules', {
+    await authFetch('/api/rules', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...newRule, id, parentId: user.id })
@@ -296,7 +297,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
   const updateRule = async () => {
     if (!editingRule) return;
-    await fetch(`/api/rules/${editingRule.id}`, {
+    await authFetch(`/api/rules/${editingRule.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(editingRule)
@@ -309,14 +310,14 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
   const deleteRule = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm('确定要删除这个规则吗？小朋友将无法再申请此任务。')) return;
-    await fetch(`/api/rules/${id}`, { method: 'DELETE' });
+    await authFetch(`/api/rules/${id}`, { method: 'DELETE' });
     fetchData();
     if (socket) socket.emit('update_data', { parentId: user.id });
   };
 
   const reactivateRule = async (ruleId: string, childId: string) => {
     try {
-      const res = await fetch('/api/rules/reactivate', {
+      const res = await authFetch('/api/rules/reactivate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ruleId, childId })
@@ -374,7 +375,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
   const awardPointsDirectly = async (rule: RewardRule) => {
     if (!child) return;
-    await fetch('/api/points/add', {
+    await authFetch('/api/points/add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
@@ -387,7 +388,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
   };
 
   const approveTask = async (task: TaskSubmission) => {
-    await fetch('/api/tasks/approve', {
+    await authFetch('/api/tasks/approve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
@@ -406,7 +407,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
       return;
     }
     
-    await fetch('/api/tasks/reject', {
+    await authFetch('/api/tasks/reject', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
@@ -425,7 +426,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
     const targetReward = rewards.find(r => r.id === record.rewardId);
     const pointsCost = targetReward ? targetReward.pointsRequired : 0;
     
-    await fetch('/api/redemptions/approve', {
+    await authFetch('/api/redemptions/approve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
@@ -442,7 +443,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
   const rejectRedemption = async () => {
     if (!redemptionToReject) return;
-    await fetch('/api/redemptions/reject', {
+    await authFetch('/api/redemptions/reject', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
