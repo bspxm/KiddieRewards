@@ -26,7 +26,7 @@ export const sendBrowserNotification = (title: string, options?: NotificationOpt
     return;
   }
 
-  // Use a default icon if none provided
+  // 如果没有提供图标则使用默认图标
   const notificationOptions: NotificationOptions = {
     icon: '/favicon.ico',
     ...options,

@@ -20,10 +20,10 @@ export interface RewardRule {
   parentId: string;
   title: string;
   description: string;
-  points: number; // Positive for earning, Negative for "cost" (if used as penalty)
+  points: number; // 正数为获得，负数为"消耗"（如作为惩罚）
   icon?: string;
-  isRepeating: boolean; // true for repeating, false for one-time
-  targetChildId?: string; // 'all' or specific child id
+  isRepeating: boolean; // true为可重复，false为一次性
+  targetChildId?: string; // 'all'或指定孩子ID
 }
 
 export interface RewardItem {
@@ -34,7 +34,7 @@ export interface RewardItem {
   pointsRequired: number;
   stock?: number;
   image?: string;
-  targetChildId?: string; // 'all' or specific child id
+  targetChildId?: string; // 'all'或指定孩子ID
 }
 
 export interface RedemptionRecord {

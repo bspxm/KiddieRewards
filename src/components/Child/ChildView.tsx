@@ -26,9 +26,10 @@ import {
   AppNotification 
 } from '../../types';
 import { requestNotificationPermission, sendBrowserNotification } from '../../lib/notificationHelper';
+import { useTabState } from '../../hooks/useTabState';
 
 export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null }) => {
-  const [activeTab, setActiveTab ] = useState('rewards');
+  const [activeTab, setActiveTab] = useTabState<string>('tab', 'rewards');
   const [rewards, setRewards] = useState<RewardItem[]>([]);
   const [rules, setRules] = useState<RewardRule[]>([]);
   const [history, setHistory] = useState<PointHistory[]>([]);
@@ -145,7 +146,7 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
     if (notifications.length > 0) {
       const hasUnread = notifications.some(n => !n.isRead);
       if (hasUnread) {
-        const latestNotif = notifications[0]; // Assuming newest is first
+        const latestNotif = notifications[0]; // 假设最新的通知排在第一个
         const lastNotifiedId = localStorage.getItem(`last_notified_child_${user.id}`);
         
         if (lastNotifiedId !== latestNotif.id && !latestNotif.isRead) {
@@ -160,9 +161,9 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
   }, [notifications, user.id]);
 
   useEffect(() => {
-    // Real-time auto-fetch disabled per user request
+    // 实时自动获取已根据用户请求禁用
     if (!socket) return;
-    // socket.on('new_notification', fetchData); // Disabled
+    // socket.on('new_notification', fetchData); // 已禁用
   }, [socket, user.id]);
 
   const openNotifCenter = async () => {
@@ -237,7 +238,7 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
         playTone(783.99, 0.2, 0.3);
         playTone(1046.50, 0.4, 0.5);
       } else {
-        // More robust fanfare for achievement
+        // 成就音效更完整的庆祝声
         playTone(392.00, 0, 0.1); // G4
         playTone(392.00, 0.1, 0.1); // G4
         playTone(523.25, 0.25, 0.4); // C5
@@ -275,7 +276,7 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
 
   return (
     <div className="pt-24 pb-32 max-w-4xl mx-auto px-6 space-y-8">
-      {/* Header with Welcome and Notification Bell */}
+      {/* 欢迎头部和通知铃铛 */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-3xl font-black text-gray-900 tracking-tight">你好呀，{user.name}！</h1>
@@ -594,8 +595,8 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
             className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-orange-500/95 backdrop-blur-[20px]"
           >
             <motion.div initial={{ scale: 0.8, rotate: -5 }} animate={{ scale: 1, rotate: 0 }} className="bg-white rounded-[4rem] p-10 max-w-lg w-full text-center shadow-[0_32px_64px_-16px_rgba(0,0,0,0.3)] relative overflow-hidden">
-               {/* Background shine effect */}
-               <div className="absolute inset-0 bg-gradient-to-tr from-orange-50 to-white opacity-50 -z-10" />
+                {/* 背景光泽效果 */}
+                <div className="absolute inset-0 bg-gradient-to-tr from-orange-50 to-white opacity-50 -z-10" />
                <motion.div 
                  animate={{ rotate: 360 }}
                  transition={{ repeat: Infinity, duration: 10, ease: "linear" }}
@@ -611,7 +612,7 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
                     <Trophy size={100} className="mx-auto text-orange-500" strokeWidth={2.5} />
                   </motion.div>
                   
-                  {/* Floating sparkles */}
+                   {/* 浮动闪烁效果 */}
                   <motion.div animate={{ scale: [1, 1.5, 1], opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5, delay: 0.2 }} className="absolute top-0 right-1/4 text-yellow-500">
                     <Sparkles size={24} />
                   </motion.div>

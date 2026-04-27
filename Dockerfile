@@ -1,5 +1,5 @@
 # ========= 构建阶段 =========
-FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/node:22 AS builder
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/node:22-slim AS builder
 
 WORKDIR /app
 
@@ -45,6 +45,10 @@ USER node
 VOLUME ["/app/data", "/app/logs"]
 
 EXPOSE 3000
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO /dev/null http://localhost:3000/api/health || exit 1
 
 # 运行编译后的代码
 CMD ["node", "server.js"]
