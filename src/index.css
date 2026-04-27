@@ -13,18 +13,18 @@
 @theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   
-  /* Brand Colors - These become the default values for the variables */
+  /* 品牌色 - 这些是变量的默认值 */
   --color-brand: #4f46e5;
   --color-brand-hover: #4338ca;
   --color-brand-light: #eef2ff;
   
-  /* Secondary Colors */
+  /* 辅助色 */
   --color-secondary: #f59e0b;
   --color-secondary-hover: #d97706;
   --color-secondary-light: #fffbeb;
 }
 
-/* Theme Overrides */
+/* 主题覆盖 */
 .theme-ocean {
   --color-brand: #0284c7;
   --color-brand-hover: #0369a1;

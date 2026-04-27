@@ -14,7 +14,7 @@ export const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) =>
   const [loading, setLoading] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   
-  // Registration state
+  // 注册状态
   const [regFamilyName, setRegFamilyName] = useState('');
   const [regAdminName, setRegAdminName] = useState('');
   const [regPassword, setRegPassword] = useState('');
@@ -77,7 +77,7 @@ export const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) =>
 
   return (
     <div className="min-h-screen bg-[#FDFDFC] flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      {/* Decorative background elements - added pointer-events-none */}
+      {/* 装饰性背景元素 - 添加了pointer-events-none */}
       <div className="absolute -top-24 -left-24 w-96 h-96 bg-brand-light rounded-full blur-3xl opacity-50 pointer-events-none" />
       <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-secondary-light rounded-full blur-3xl opacity-50 pointer-events-none" />
       
@@ -152,7 +152,7 @@ export const LoginView = ({ onLogin }: { onLogin: (u: UserProfile) => void }) =>
          </div>
        </div>
 
-       {/* Register Modal */}
+        {/* 注册弹窗 */}
        <AnimatePresence>
          {showRegister && (
             <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">

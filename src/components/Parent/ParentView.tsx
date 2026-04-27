@@ -49,6 +49,7 @@ import {
 } from '../../types';
 import { requestNotificationPermission, sendBrowserNotification } from '../../lib/notificationHelper';
 import { CustomSelect } from '../ui/CustomSelect';
+import { useTabState } from '../../hooks/useTabState';
 
 export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, currentTheme }: { 
   user: UserProfile, 
@@ -58,7 +59,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
   onSetTheme: (theme: string) => void,
   currentTheme: string
 }) => {
-  const [activeTab, setActiveTab ] = useState('dashboard');
+  const [activeTab, setActiveTab] = useTabState<string>('tab', 'dashboard');
   const [children, setChildren] = useState<UserProfile[]>([]);
   const [familyMembers, setFamilyMembers] = useState<UserProfile[]>([]);
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
@@ -366,9 +367,9 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
   }, [records, children, user.id]);
 
   useEffect(() => {
-    // Real-time auto-fetch disabled per user request
+    // 实时自动获取已根据用户请求禁用
     if (!socket) return;
-    // socket.on('new_notification', fetchData); // Disabled
+    // socket.on('new_notification', fetchData); // 已禁用
   }, [socket, user.id]);
 
   const awardPointsDirectly = async (rule: RewardRule) => {
@@ -459,7 +460,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
 
   return (
     <div className="pt-24 pb-32 max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
-      {/* Sidebar - Desktop */}
+      {/* 侧边栏 - 桌面端 */}
       <div className="hidden lg:block lg:col-span-3 space-y-6">
         <div className="bg-white p-6 rounded-[2.5rem] border border-gray-100 shadow-sm space-y-6">
           <div>
@@ -549,7 +550,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* 主要内容 */}
       <div className="lg:col-span-9">
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
@@ -562,7 +563,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
               </header>
 
               <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* 0. Points Leaderboard - Quick Overview */}
+                {/* 0. 星币排行榜 - 快速概览 */}
                 <div className="bg-gradient-to-br from-brand to-brand-hover rounded-3xl p-8 shadow-xl shadow-brand-light flex flex-col md:col-span-2 text-white overflow-hidden relative">
                    <div className="relative z-10">
                       <div className="flex items-center justify-between mb-8">
@@ -625,12 +626,12 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                         </div>
                       )}
                    </div>
-                   {/* Decorative background circle */}
+                    {/* 装饰性背景圆 */}
                    <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-white/5 rounded-full blur-3xl" />
                    <div className="absolute -top-10 -left-10 w-40 h-40 bg-white/10 rounded-full blur-2xl" />
                 </div>
 
-                {/* 1. Direct Add Points */}
+                {/* 1. 直接加分 */}
                 <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm flex flex-col">
                    <div className="flex items-center justify-between mb-6">
                       <h3 className="font-black text-xl text-gray-900 flex items-center gap-2">
@@ -670,7 +671,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                    </div>
                 </div>
 
-                {/* 2. Pending Tasks */}
+                {/* 2. 待确认任务 */}
                 <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm flex flex-col">
                    <div className="flex items-center justify-between mb-6">
                       <h3 className="font-black text-xl text-gray-900 flex items-center gap-2">
@@ -706,7 +707,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                    </div>
                 </div>
 
-                {/* 3. Pending Redemptions - Expanding to full row if it's the 3rd card */}
+                {/* 3. 待处理兑换 - 作为第三张卡片占满整行 */}
                 <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm flex flex-col md:col-span-2">
                    <div className="flex items-center justify-between mb-6">
                       <h3 className="font-black text-xl text-gray-900 flex items-center gap-2">
@@ -762,7 +763,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                   </div>
                </div>
 
-               {/* Section: App Settings / Themes */}
+                {/* 部分：应用设置 / 主题 */}
                <section className="bg-white rounded-[2.5rem] border border-gray-100 p-8 shadow-sm">
                   <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-8 flex items-center gap-2">
                     <Sparkles size={14} className="text-brand" />
@@ -802,7 +803,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                   </div>
                </section>
 
-               {/* Section: Your Account */}
+                {/* 部分：你的账号 */}
                <section className="bg-white rounded-[2.5rem] border border-gray-100 p-8 shadow-sm">
                   <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-8 flex items-center gap-2">
                     <User size={14} className="text-brand" />
@@ -840,7 +841,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                   </div>
                </section>
 
-               {/* Children List */}
+                {/* 孩子列表 */}
                <section className="space-y-6">
                   <div className="flex items-center justify-between">
                     <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
@@ -1041,7 +1042,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                   </button>
                </div>
 
-               {/* Section 1: Pending Redemptions */}
+                {/* 第一部分：待处理兑换 */}
                <section className="space-y-4">
                   <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></div>
@@ -1218,7 +1219,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
                             onClick={() => setGrowthPage(p => Math.max(1, p - 1))}
                             className="w-10 h-10 rounded-xl border border-gray-100 flex items-center justify-center text-gray-400 disabled:opacity-30 hover:bg-gray-50 transition-all font-black text-sm"
                           >
-                            <Calendar size={18} className="rotate-90" /> {/* Just a proxy for left arrow if not available */}
+                             <Calendar size={18} className="rotate-90" /> {/* 用作左箭头代理 */}
                           </button>
                           <span className="text-sm font-black px-4">{growthPage}</span>
                           <button 
@@ -1513,7 +1514,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
         )}
       </AnimatePresence>
       
-      {/* ... Add modals for AddReward, EditReward, EditRule, etc if skipped ... */}
+      {/* ... 如果需要AddReward, EditReward, EditRule等的弹窗 ... */}
        <AnimatePresence>
         {showAddChild && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -1532,7 +1533,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
         )}
       </AnimatePresence>
 
-      {/* Task Rejection Modal */}
+      {/* 任务拒绝弹窗 */}
       <AnimatePresence>
         {taskToReject && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -1590,7 +1591,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
         )}
       </AnimatePresence>
 
-      {/* Mobile Tab Bar */}
+      {/* 移动端标签栏 */}
       <div className="lg:hidden fixed bottom-6 left-6 right-6 bg-white/95 backdrop-blur-lg border border-gray-100 p-2 z-50 rounded-[2.5rem] shadow-2xl overflow-x-auto no-scrollbar flex justify-start">
          <div className="flex items-center gap-2 px-4 py-1 shrink-0 w-max">
            {[

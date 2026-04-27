@@ -27,11 +27,11 @@ export const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode, onSe
   const [showThemeSelector, setShowThemeSelector] = useState(false);
 
   useEffect(() => {
-    // Real-time socket variation disabled per user request
+    // 实时socket更新已根据用户请求禁用
     if (!socket) return;
-    // socket.on('points_updated', ...); // Disabled
-    // socket.on('new_redemption', ...); // Disabled
-    // socket.on('new_task_submission', ...); // Disabled
+    // socket.on('points_updated', ...); // 已禁用
+    // socket.on('new_redemption', ...); // 已禁用
+    // socket.on('new_task_submission', ...); // 已禁用
   }, [socket]);
 
   return (

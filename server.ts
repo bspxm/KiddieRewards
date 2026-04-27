@@ -10,7 +10,7 @@ import { logAction, getLogs } from './server/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Ensure data directory exists for persistence
+// 确保数据目录存在以实现持久化
 const dataDir = path.join(process.cwd(), 'data');
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -19,10 +19,10 @@ if (!fs.existsSync(dataDir)) {
 const dbPath = path.join(dataDir, 'kiddie_rewards.db');
 const db = new Database(dbPath);
 
-// In-memory brute force protection
+// 内存中的暴力破解防护
 const loginFailures = new Map<string, { attempts: number, lastAttempt: number }>();
 const MAX_ATTEMPTS = 5;
-const COOLDOWN_PERIOD = 10 * 60 * 1000; // 10 minutes
+const COOLDOWN_PERIOD = 10 * 60 * 1000; // 10分钟
 
 function checkBruteForce(key: string): { blocked: boolean; remaining?: number } {
   const record = loginFailures.get(key);
@@ -33,7 +33,7 @@ function checkBruteForce(key: string): { blocked: boolean; remaining?: number } 
     if (elapsed < COOLDOWN_PERIOD) {
       return { blocked: true, remaining: COOLDOWN_PERIOD - elapsed };
     } else {
-      // Cooldown expired, reset
+      // 冷却期已过，重置
       loginFailures.delete(key);
       return { blocked: false };
     }
@@ -52,7 +52,7 @@ function recordSuccess(key: string) {
   loginFailures.delete(key);
 }
 
-// Initialize Database Tables
+// 初始化数据库表
 db.exec(`
   CREATE TABLE IF NOT EXISTS families (
     id TEXT PRIMARY KEY,
@@ -145,7 +145,7 @@ db.exec(`
   );
 `);
 
-// Migrations
+// 数据库迁移
 try { db.exec("ALTER TABLE notifications ADD COLUMN metadata TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE reward_rules ADD COLUMN familyId TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE reward_rules ADD COLUMN isRepeating INTEGER DEFAULT 1"); } catch(e) {}
@@ -157,13 +157,13 @@ try { db.exec("ALTER TABLE task_submissions ADD COLUMN familyId TEXT"); } catch(
 try { db.exec("ALTER TABLE families ADD COLUMN createdAt INTEGER"); } catch(e) {}
 try { db.exec("ALTER TABLE families ADD COLUMN lastActiveAt INTEGER"); } catch(e) {}
 
-// Populate missing defaults
+// 填充缺失默认值
 try {
   db.prepare("UPDATE families SET createdAt = ? WHERE createdAt IS NULL").run(Date.now());
   db.prepare("UPDATE families SET lastActiveAt = ? WHERE lastActiveAt IS NULL").run(Date.now());
 } catch(e) {}
 
-// Populate missing familyId for existing records
+// 为现有记录填充缺失的familyId
 try {
   const users = db.prepare("SELECT id, familyId FROM users").all() as any[];
   const updateRule = db.prepare("UPDATE reward_rules SET familyId = ? WHERE parentId = ? AND familyId IS NULL");
@@ -189,16 +189,16 @@ try {
   db.exec("ALTER TABLE users ADD COLUMN password TEXT");
 } catch (e) {}
 
-// Ensure all existing users have a default password if missing
+// 确保所有现有用户在缺失密码时都有默认密码
 db.prepare("UPDATE users SET password = '123456' WHERE password IS NULL OR password = ''").run();
 
 async function startServer() {
   const app = express();
 
-  // --- Database Initialization moved inside startServer ---
+  // --- 数据库初始化已移至startServer内部 ---
   try {
     const initTransaction = db.transaction(() => {
-      // Initialize Admin if not exists
+      // 初始化管理员（如果不存在）
       const existingAdmin = db.prepare('SELECT * FROM users WHERE role = ?').get('admin');
       if (!existingAdmin) {
         db.prepare('INSERT INTO users (id, name, role, points, password) VALUES (?, ?, ?, ?, ?)').run('admin-sys-001', 'admin', 'admin', 0, 'admin123');
@@ -206,7 +206,7 @@ async function startServer() {
       
       const isSeeded = db.prepare('SELECT value FROM server_meta WHERE key = ?').get('seeded');
       if (!isSeeded) {
-        // Force reset Demo Family (only on first boot)
+        // 强制重置示例家庭（仅首次启动时）
         db.prepare('DELETE FROM families WHERE name = ?').run('乐家');
         const famId = 'fam_le';
         db.prepare('INSERT INTO families (id, name, createdAt, lastActiveAt) VALUES (?, ?, ?, ?)').run(famId, '乐家', Date.now(), Date.now());
@@ -218,7 +218,7 @@ async function startServer() {
         db.prepare('INSERT OR REPLACE INTO users (id, name, role, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?)').run(pId, '乐爸/乐妈', 'parent', 0, '123456', famId);
         db.prepare('INSERT OR REPLACE INTO users (id, name, role, parentId, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?, ?)').run('demo-c-001', '小乐', 'child', pId, 100, '123456', famId);
         
-        // Initial Rules/Rewards
+        // 初始规则/奖励
         db.prepare('DELETE FROM reward_rules WHERE parentId = ?').run(pId);
         db.prepare('INSERT OR IGNORE INTO reward_rules (id, parentId, title, points, icon) VALUES (?, ?, ?, ?, ?)').run('r1', pId, '按时完成作业', 10, 'Book');
         db.prepare('INSERT OR IGNORE INTO reward_rules (id, parentId, title, points, icon) VALUES (?, ?, ?, ?, ?)').run('r2', pId, '自己整理房间', 5, 'Home');
@@ -236,34 +236,44 @@ async function startServer() {
   } catch (e) {
     console.error("[INIT] Hierarchical Sync Error:", e);
   }
-  // --- End Initialization ---
+  // --- 初始化结束 ---
 
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
     cors: { origin: '*' }
   });
 
-  // Trust proxy to get real IP when running in Docker/behind reverse proxy
+  // 信任代理，在Docker/反向代理后获取真实IP
   app.set('trust proxy', true);
 
   app.use(express.json());
 
-  // Helper to extract real client IP, especially behind Cloudflare Tunnel/Docker Bridge
+  // 提取真实客户端IP的辅助函数，特别是Cloudflare Tunnel/Docker Bridge后面
   const getClientIp = (req: express.Request) => {
     const cfIp = req.headers['cf-connecting-ip'];
     if (typeof cfIp === 'string') return cfIp;
     
-    // Express req.ip already handles X-Forwarded-For if trust proxy is set
+    // Express req.ip在设置信任代理后已处理X-Forwarded-For
     return req.ip || '-';
   };
 
-  // Request logger for debugging
+  // 请求日志，用于调试
   app.use((req, res, next) => {
     console.log(`[REQUEST] ${req.method} ${req.url}`);
     next();
   });
 
-  // Debug endpoint to check users
+  // 健康检查
+  app.get('/api/health', (req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      res.json({ status: 'ok' });
+    } catch (e) {
+      res.status(500).json({ status: 'error' });
+    }
+  });
+
+  // 调试用接口，用于检查用户
   app.get('/api/debug/users', (req, res) => {
     try {
       const users = db.prepare('SELECT id, name, role, password FROM users').all();
@@ -273,7 +283,7 @@ async function startServer() {
     }
   });
 
-  // Generalized Login supporting User@Family
+  // 通用登录接口，支持User@Family格式
   app.post('/api/login', (req, res) => {
     const { name, password } = req.body;
     const ip = getClientIp(req);
@@ -294,7 +304,7 @@ async function startServer() {
 
     console.log(`[AUTH DEBUG] Login attempt: [${name}]`);
     
-    // 1. Super Admin check
+    // 1. Super Admin检查
     if (name.toLowerCase() === 'admin') {
       const admin = db.prepare("SELECT * FROM users WHERE role = 'admin' AND name = 'admin'").get() as any;
       if (admin && admin.password === password) {
@@ -322,14 +332,14 @@ async function startServer() {
       return res.status(401).json({ success: false, message: '管理员密码错误' });
     }
 
-    // 2. User@Family check
+    // 2. User@Family检查
     if (!name.includes('@')) {
       return res.status(400).json({ success: false, message: '请输入格式如 名称@家庭 的账号' });
     }
 
     const [username, familyName] = name.split('@');
     
-    // Find family
+    // 查找家庭
     const family = db.prepare("SELECT id FROM families WHERE LOWER(name) = LOWER(?)").get(familyName) as any;
     if (!family) {
       logAction({
@@ -343,7 +353,7 @@ async function startServer() {
       return res.status(404).json({ success: false, message: `找不到家庭: ${familyName}` });
     }
 
-    // Find user in family
+    // 查找家庭中的用户
     const user = db.prepare("SELECT * FROM users WHERE LOWER(name) = LOWER(?) AND familyId = ?").get(username, family.id) as any;
     
     if (!user) {
@@ -393,7 +403,7 @@ async function startServer() {
     res.json({ success: true, user: { id: user.id, name: user.name, role: user.role, parentId: user.parentId, familyId: user.familyId } });
   });
 
-  // Admin: Get all families with members
+  // Admin: 获取所有家庭及其成员
   app.post('/api/admin/change-password', (req, res) => {
     const { currentPassword, newPassword } = req.body;
     const admin = db.prepare("SELECT * FROM users WHERE role = 'admin' AND name = 'admin'").get() as any;
@@ -433,20 +443,20 @@ async function startServer() {
     res.json(results);
   });
 
-  // Admin: Delete family
+  // Admin: 删除家庭
   app.delete('/api/admin/families/:id', (req, res) => {
     const familyId = req.params.id;
     console.log(`[ADMIN] Attempting to delete family: ${familyId}`);
     
     try {
       const trx = db.transaction(() => {
-        // 1. Clear tables that have familyId directly
+        // 1. 清除直接包含familyId的表
         db.prepare('DELETE FROM reward_rules WHERE familyId = ?').run(familyId);
         db.prepare('DELETE FROM rewards WHERE familyId = ?').run(familyId);
         db.prepare('DELETE FROM task_submissions WHERE familyId = ?').run(familyId);
         db.prepare('DELETE FROM redemption_records WHERE familyId = ?').run(familyId);
 
-        // 2. Get all users in the family to clear legacy/user-bound tables
+        // 2. 获取所有家庭成员以清除旧版/用户绑定表
         const users = db.prepare('SELECT id FROM users WHERE familyId = ?').all(familyId) as { id: string }[];
         const userIds = users.map(u => u.id);
 
@@ -460,7 +470,7 @@ async function startServer() {
           }
         }
         
-        // Ensure legacy reward rules or old task_submissions created before migration get cleaned up just in case
+        // 确保迁移前创建的旧版奖励规则或任务提交也会被清理
         if (userIds.length > 0) {
           const placeholders = userIds.map(() => '?').join(',');
           try {
@@ -471,10 +481,10 @@ async function startServer() {
           } catch(e) {}
         }
 
-        // 3. Clear users
+        // 3. 清除用户
         db.prepare('DELETE FROM users WHERE familyId = ?').run(familyId);
 
-        // 4. Finally, clear family
+        // 4. 最后清除家庭
         db.prepare('DELETE FROM families WHERE id = ?').run(familyId);
       });
       
@@ -501,7 +511,7 @@ async function startServer() {
     }
   });
 
-  // Admin Logs API
+  // Admin日志API
   app.get('/api/admin/logs', (req, res) => {
     const { year, month } = req.query;
     try {
@@ -523,7 +533,7 @@ async function startServer() {
     }
   });
 
-  // API Routes
+  // API路由
   app.get('/api/notifications/:userId', (req, res) => {
     const notifications = db.prepare('SELECT * FROM notifications WHERE userId = ? ORDER BY timestamp DESC LIMIT 20').all(req.params.userId);
     res.json(notifications);
@@ -540,7 +550,7 @@ async function startServer() {
     const user = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'parent'").get(userId) as any;
     
     if (user) {
-      // Robust check for password
+      // 健壮检查密码
       const isValid = user.password === password || (user.password === null && password === '123456') || (user.password === '' && password === '123456');
       if (isValid) {
         res.json({ success: true });
@@ -637,12 +647,12 @@ async function startServer() {
     }
   });
 
-  // Generic user deletion (child or parent)
+  // 通用用户删除（孩子或家长）
   app.delete('/api/users/:id', (req, res) => {
     const userId = req.params.id;
     try {
       const trx = db.transaction(() => {
-        // Cleanup all possible related records
+        // 清理所有可能的关联记录
         db.prepare('DELETE FROM redemption_records WHERE childId = ?').run(userId);
         db.prepare('DELETE FROM point_history WHERE childId = ?').run(userId);
         db.prepare('DELETE FROM task_submissions WHERE childId = ?').run(userId);
@@ -670,7 +680,7 @@ async function startServer() {
     }
   });
 
-  // Keep old endpoint for compatibility if needed, but just point to the new logic
+  // 保留旧接口以兼容，直接指向新逻辑
   app.delete('/api/users/child/:id', (req, res) => {
     res.redirect(307, `/api/users/${req.params.id}`);
   });
@@ -732,7 +742,7 @@ async function startServer() {
   app.post('/api/rules/reactivate', (req, res) => {
     const { ruleId, childId } = req.body;
     try {
-      // Archive approved submissions for this rule by this child so they can submit it again
+      // 归档此孩子在此规则下已批准的提交，以便可以重新提交
       db.prepare("UPDATE task_submissions SET status = 'archived' WHERE ruleId = ? AND childId = ? AND status = 'approved'").run(ruleId, childId);
       res.json({ success: true });
     } catch (e) {
@@ -813,17 +823,17 @@ async function startServer() {
     const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(parentId) as any;
     const timestamp = Date.now();
 
-    // Check rule constraints
+    // 检查规则限制
     const rule = db.prepare('SELECT isRepeating FROM reward_rules WHERE id = ?').get(ruleId) as any;
     if (rule) {
       if (rule.isRepeating === 0 || rule.isRepeating === false) {
-        // Special Rule (One-time): Check if ever submitted and active
+        // 特别规则（一次性）：检查是否已提交且为活跃状态
         const existing = db.prepare("SELECT id FROM task_submissions WHERE childId = ? AND ruleId = ? AND status IN ('pending', 'approved')").get(childId, ruleId);
         if (existing) {
           return res.status(400).json({ success: false, error: '这个任务是一次性的，你已经完成过啦！' });
         }
       } else {
-        // Daily Rule: Check if submitted today and active
+        // 日常规则：检查是否今天已提交且为活跃状态
         const startOfDay = new Date().setHours(0, 0, 0, 0);
         const existingToday = db.prepare("SELECT id FROM task_submissions WHERE childId = ? AND ruleId = ? AND timestamp >= ? AND status IN ('pending', 'approved')").get(childId, ruleId, startOfDay);
         if (existingToday) {
@@ -835,10 +845,7 @@ async function startServer() {
     db.prepare('INSERT INTO task_submissions (id, childId, parentId, ruleId, title, points, timestamp, status, familyId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, childId, parentId, ruleId, title, points, timestamp, 'pending', user?.familyId);
     
-    // Also save a persistent notification for the parent
-    const notifId = Math.random().toString(36).substr(2, 9);
-    db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(notifId, parentId, '新的任务申请', `孩子提交了任务: ${title}`, 'info', timestamp);
+    // 同时为家长保存持久化通知（任务提交）
     io.emit('new_notification', { userId: parentId });
 
     res.json({ success: true });
@@ -851,7 +858,7 @@ async function startServer() {
 
     try {
       const trx = db.transaction(() => {
-        // Find rule ID associated with this task
+        // 查找与此任务关联的规则ID
         const task = db.prepare('SELECT ruleId FROM task_submissions WHERE id = ?').get(id) as any;
         let isAchievement = false;
         let ruleId = '';
@@ -937,7 +944,7 @@ async function startServer() {
     db.prepare('INSERT INTO redemption_records (id, childId, parentId, rewardId, rewardTitle, timestamp, status, familyId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, childId, parentId, rewardId, rewardTitle, timestamp, 'pending', user?.familyId);
     
-    // Also save a persistent notification for the parent
+    // 同时为家长保存持久化通知（兑换申请）
     const notifId = Math.random().toString(36).substr(2, 9);
     db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
       .run(notifId, parentId, '新的兑换申请', `孩子想要兑换奖励: ${rewardTitle}`, 'info', timestamp);
@@ -1096,13 +1103,13 @@ async function startServer() {
     }
   });
 
-  // Catch-all for unmatched API routes
+  // 未匹配的API路由兜底处理
   app.all('/api/*', (req, res) => {
     console.warn(`[API 404] ${req.method} ${req.url}`);
     res.status(404).json({ error: `API route not found: ${req.url}` });
   });
 
-  // Vite Middleware
+  // Vite中间件
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

@@ -4,11 +4,11 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { UserProfile } from './types';
 
-// Components
+// 组件
 import { Navbar } from './components/Layout/Navbar';
 import { SuperAdminView } from './components/Admin/SuperAdminView';
 import { LoginView } from './components/Auth/LoginView';
@@ -56,6 +56,7 @@ export default function App() {
     setCurrentUser(null);
     setIsChildMode(false);
     localStorage.removeItem('kiddie_user');
+    window.history.pushState({}, '', window.location.pathname);
   };
 
   if (!currentUser) {
@@ -66,43 +67,38 @@ export default function App() {
     );
   }
 
-  if (currentUser.role === 'admin') {
-    return (
-      <div className={`min-h-screen theme-transition flex flex-col ${theme !== 'default' ? `theme-${theme}` : ''}`}>
-        <Navbar 
-          user={currentUser} 
-          socket={socket} 
-          onLogout={handleLogout}
-          onSetTheme={setTheme}
-          currentTheme={theme}
-        />
-        <div className="flex-1 overflow-auto bg-gray-50 pt-20">
-          <SuperAdminView onLogout={handleLogout} />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <BrowserRouter>
-      <div className={`min-h-screen bg-gray-50/50 theme-transition ${theme !== 'default' ? `theme-${theme}` : ''}`}>
-        <Navbar 
-          user={currentUser} 
-          socket={socket} 
-          onLogout={handleLogout} 
-          isChildMode={isChildMode}
-          onSwitchMode={() => setIsChildMode(!isChildMode)}
-          onSetTheme={setTheme}
-          currentTheme={theme}
-        />
-        <Routes>
-          <Route path="/" element={
-            isChildMode
+      {currentUser.role === 'admin' ? (
+        <div className={`min-h-screen theme-transition flex flex-col ${theme !== 'default' ? `theme-${theme}` : ''}`}>
+          <Navbar 
+            user={currentUser} 
+            socket={socket} 
+            onLogout={handleLogout}
+            onSetTheme={setTheme}
+            currentTheme={theme}
+          />
+          <div className="flex-1 overflow-auto bg-gray-50 pt-20">
+            <SuperAdminView onLogout={handleLogout} />
+          </div>
+        </div>
+      ) : (
+        <div className={`min-h-screen bg-gray-50/50 theme-transition ${theme !== 'default' ? `theme-${theme}` : ''}`}>
+          <Navbar 
+            user={currentUser} 
+            socket={socket} 
+            onLogout={handleLogout} 
+            isChildMode={isChildMode}
+            onSwitchMode={() => setIsChildMode(!isChildMode)}
+            onSetTheme={setTheme}
+            currentTheme={theme}
+          />
+          {isChildMode
             ? <ChildView user={currentUser} socket={socket} />
             : <ParentView user={currentUser} socket={socket} onSwitchToChild={() => setIsChildMode(true)} onLogout={handleLogout} onSetTheme={setTheme} currentTheme={theme} />
-          } />
-        </Routes>
-      </div>
+          }
+        </div>
+      )}
     </BrowserRouter>
   );
 }

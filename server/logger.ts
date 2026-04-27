@@ -36,7 +36,7 @@ export function logAction(entry: Omit<LogEntry, 'timestamp'>) {
   const logLine = JSON.stringify(logEntry) + '\n';
   fs.appendFileSync(filePath, logLine);
   
-  // Also log to console for visibility
+  // 同时输出到控制台以便查看
   const color = entry.level === 'ERROR' ? '\x1b[31m' : entry.level === 'WARN' ? '\x1b[33m' : entry.level === 'SECURITY' ? '\x1b[35m' : '\x1b[32m';
   const reset = '\x1b[0m';
   console.log(`${color}[${entry.level}]${reset} ${entry.action} - ${entry.details} (${entry.success ? 'Success' : 'Failed'})`);

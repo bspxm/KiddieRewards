@@ -19,6 +19,7 @@ import {
   RotateCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTabState } from '../../hooks/useTabState';
 
 export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
   const [families, setFamilies] = useState<any[]>([]);
@@ -27,7 +28,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   
-  const [activeTab, setActiveTab] = useState<'families' | 'logs' | 'settings'>('families');
+  const [activeTab, setActiveTab] = useTabState<'families' | 'logs' | 'settings'>('tab', 'families');
   const [logs, setLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logFilter, setLogFilter] = useState({ year: new Date().getFullYear().toString(), month: (new Date().getMonth() + 1).toString().padStart(2, '0') });
@@ -89,7 +90,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
 
   const fetchLogs = async () => {
     setLogsLoading(true);
-    setCurrentPage(1); // Reset to page 1 on filter change
+    setCurrentPage(1); // 筛选更改时重置为第1页
     try {
       const res = await fetch(`/api/admin/logs?year=${logFilter.year}&month=${logFilter.month}`);
       const data = await res.json();
@@ -127,7 +128,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
 
   return (
     <div className="flex flex-col min-h-screen">
-      {/* Sub-header with Tabs */}
+      {/* 子标题与标签页 */}
       <div className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-8 flex items-center justify-start overflow-x-auto no-scrollbar">
           <div className="flex items-center gap-2 sm:gap-4 py-4 min-w-max">
@@ -212,14 +213,14 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                       <div>
                         <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-3">成员列表</span>
                         <div className="grid grid-cols-2 gap-2">
-                          {/* Parents */}
+                          {/* 家长 */}
                           {f.parents.map((p: any) => (
                             <div key={p.id} className="bg-brand/5 px-3 py-2 rounded-xl flex items-center gap-2 border border-brand/10">
                               <span className="text-[10px] font-black text-brand uppercase tracking-tighter">家长</span>
                               <span className="text-xs font-black text-gray-700">{p.name}</span>
                             </div>
                           ))}
-                          {/* Children */}
+                          {/* 孩子 */}
                           {f.children.map((c: any) => (
                             <div key={c.id} className="bg-gray-50 px-3 py-2 rounded-xl flex items-center gap-2 border border-gray-100/50">
                               <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter">孩子</span>
@@ -316,7 +317,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
             </header>
 
             <div className={`bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden ${logsLoading || logs.length === 0 ? '' : 'sm:border-2'}`}>
-              {/* Desktop Table View */}
+              {/* 桌面端表格视图 */}
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left">
                   <thead className="bg-gray-50/50">
@@ -379,7 +380,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                 </table>
               </div>
 
-              {/* Mobile Card View */}
+              {/* 移动端卡片视图 */}
               <div className="md:hidden divide-y divide-gray-100">
                 {logsLoading ? (
                   <div className="py-20 text-center">
@@ -433,7 +434,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                 )}
               </div>
 
-              {/* Pagination Controls */}
+              {/* 分页控件 */}
               {logs.length > LOGS_PER_PAGE && (
                 <div className="bg-gray-50/50 px-6 py-4 flex items-center justify-between border-t border-gray-100">
                   <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">
@@ -574,7 +575,7 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
         )}
       </main>
 
-      {/* Delete Confirmation Modal */}
+      {/* 删除确认弹窗 */}
       {confirmDeleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-gray-900/40 backdrop-blur-sm">
           <motion.div 
