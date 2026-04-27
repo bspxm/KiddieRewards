@@ -5,7 +5,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter } from 'react-router-dom';
-import { io, Socket } from 'socket.io-client';
 import { UserProfile } from './types';
 
 // 组件
@@ -26,23 +25,6 @@ export default function App() {
     if (savedMode !== null) return savedMode === 'true';
     return currentUser?.role === 'child';
   });
-  const [socket, setSocket] = useState<Socket | null>(null);
-
-  useEffect(() => {
-    localStorage.setItem('kiddie_theme', theme);
-  }, [theme]);
-
-  useEffect(() => {
-    localStorage.setItem('kiddie_is_child_mode', isChildMode.toString());
-  }, [isChildMode]);
-
-  useEffect(() => {
-    const newSocket = io();
-    setSocket(newSocket);
-    return () => {
-      newSocket.close();
-    }
-  }, []);
 
   const handleLogin = (user: UserProfile, token?: string) => {
     setCurrentUser(user);
@@ -75,7 +57,6 @@ export default function App() {
         <div className={`min-h-screen theme-transition flex flex-col ${theme !== 'default' ? `theme-${theme}` : ''}`}>
           <Navbar 
             user={currentUser} 
-            socket={socket} 
             onLogout={handleLogout}
             onSetTheme={setTheme}
             currentTheme={theme}
@@ -88,7 +69,6 @@ export default function App() {
         <div className={`min-h-screen bg-gray-50/50 theme-transition ${theme !== 'default' ? `theme-${theme}` : ''}`}>
           <Navbar 
             user={currentUser} 
-            socket={socket} 
             onLogout={handleLogout} 
             isChildMode={isChildMode}
             onSwitchMode={() => setIsChildMode(!isChildMode)}
@@ -96,8 +76,8 @@ export default function App() {
             currentTheme={theme}
           />
           {isChildMode
-            ? <ChildView user={currentUser} socket={socket} />
-            : <ParentView user={currentUser} socket={socket} onSwitchToChild={() => setIsChildMode(true)} onLogout={handleLogout} onSetTheme={setTheme} currentTheme={theme} />
+            ? <ChildView user={currentUser} />
+            : <ParentView user={currentUser} onSwitchToChild={() => setIsChildMode(true)} onLogout={handleLogout} onSetTheme={setTheme} currentTheme={theme} />
           }
         </div>
       )}

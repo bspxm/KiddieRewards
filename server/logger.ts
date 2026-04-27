@@ -16,6 +16,13 @@ export interface LogEntry {
   success: boolean;
 }
 
+function sanitizeLogValue(val: string): string {
+  // 移除/替换可能破坏 JSONL 格式的字符（换行、制表符、控制字符）
+  return val
+    .replace(/[\n\r\t]/g, ' ')
+    .replace(/[^\x20-\x7E\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uff00-\uffef\u2000-\u206f\u20a0-\u20cf]/g, '');
+}
+
 export function logAction(entry: Omit<LogEntry, 'timestamp'>) {
   const now = new Date();
   const year = now.getFullYear().toString();
@@ -30,6 +37,8 @@ export function logAction(entry: Omit<LogEntry, 'timestamp'>) {
   const filePath = path.join(dirPath, 'actions.log');
   const logEntry: LogEntry = {
     ...entry,
+    details: sanitizeLogValue(entry.details),
+    userName: entry.userName ? sanitizeLogValue(entry.userName) : entry.userName,
     timestamp: now.toISOString(),
   };
   

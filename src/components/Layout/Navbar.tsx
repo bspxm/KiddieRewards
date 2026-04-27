@@ -9,13 +9,11 @@ import {
   Smile
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Socket } from 'socket.io-client';
 import { UserProfile } from '../../types';
 import { requestNotificationPermission } from '../../lib/notificationHelper';
 
-export const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode, onSetTheme, currentTheme }: { 
+export const Navbar = ({ user, onLogout, isChildMode, onSwitchMode, onSetTheme, currentTheme }: { 
   user: UserProfile | null, 
-  socket: Socket | null, 
   onLogout: () => void,
   isChildMode?: boolean,
   onSwitchMode?: () => void,
@@ -25,14 +23,6 @@ export const Navbar = ({ user, socket, onLogout, isChildMode, onSwitchMode, onSe
   const [notifications, setNotifications] = useState<string[]>([]);
   const [showNotif, setShowNotif] = useState(false);
   const [showThemeSelector, setShowThemeSelector] = useState(false);
-
-  useEffect(() => {
-    // 实时socket更新已根据用户请求禁用
-    if (!socket) return;
-    // socket.on('points_updated', ...); // 已禁用
-    // socket.on('new_redemption', ...); // 已禁用
-    // socket.on('new_task_submission', ...); // 已禁用
-  }, [socket]);
 
   return (
     <nav className="fixed top-0 left-0 right-0 h-20 bg-white/80 backdrop-blur-md border-b border-gray-100 z-[100] flex items-center justify-between px-6 lg:px-12">

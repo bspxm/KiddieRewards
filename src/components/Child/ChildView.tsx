@@ -15,7 +15,6 @@ import {
   Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Socket } from 'socket.io-client';
 import { 
   UserProfile, 
   RewardRule, 
@@ -29,7 +28,7 @@ import { requestNotificationPermission, sendBrowserNotification } from '../../li
 import { useTabState } from '../../hooks/useTabState';
 import { authFetch } from '../../lib/api';
 
-export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket | null }) => {
+export const ChildView = ({ user }: { user: UserProfile }) => {
   const [activeTab, setActiveTab] = useTabState<string>('tab', 'rewards');
   const [rewards, setRewards] = useState<RewardItem[]>([]);
   const [rules, setRules] = useState<RewardRule[]>([]);
@@ -162,10 +161,8 @@ export const ChildView = ({ user, socket }: { user: UserProfile, socket: Socket 
   }, [notifications, user.id]);
 
   useEffect(() => {
-    // 实时自动获取已根据用户请求禁用
-    if (!socket) return;
-    // socket.on('new_notification', fetchData); // 已禁用
-  }, [socket, user.id]);
+    // WebSocket 已移除
+  }, [user.id]);
 
   const openNotifCenter = async () => {
     const data = await fetchData();

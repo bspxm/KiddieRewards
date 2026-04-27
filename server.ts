@@ -1,6 +1,5 @@
 import express from 'express';
 import { createServer } from 'http';
-import { Server } from 'socket.io';
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
@@ -191,8 +190,11 @@ try {
 
 // 异步初始化默认密码（仅对尚未加密的用户），并初始化种子数据
 async function initDefaults() {
-  const defaultPwdHash = await hashPassword('123456');
-  const adminPwdHash = await hashPassword('admin123');
+  // 使用强默认密码（生产环境建议通过环境变量覆盖）
+  const defaultPwd = process.env.DEFAULT_PARENT_PASSWORD || 'Kiddie@2026!';
+  const adminPwd = process.env.DEFAULT_ADMIN_PASSWORD || 'Admin@Kiddie2026!';
+  const defaultPwdHash = await hashPassword(defaultPwd);
+  const adminPwdHash = await hashPassword(adminPwd);
 
   try {
     // 迁移旧明文密码 -> bcrypt
@@ -200,9 +202,8 @@ async function initDefaults() {
     for (const u of existingUsers) {
       if (!u.password.startsWith('$2')) {
         const pw = u.password as string;
-        const hashed = pw === '123456' || pw === 'admin123'
-          ? (pw === 'admin123' ? adminPwdHash : defaultPwdHash)
-          : await hashPassword(pw);
+        // 对旧明文密码直接进行 bcrypt 哈希，保留用户原始密码
+        const hashed = await hashPassword(pw);
         db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashed, u.id);
       }
     }
@@ -248,6 +249,9 @@ async function initDefaults() {
   }
 }
 
+// MED-04: Token 黑名单（模块级，供 authMiddleware 和 /api/logout 共享）
+const tokenBlacklist = new Set<string>();
+
 function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -255,6 +259,10 @@ function authMiddleware(req: express.Request, res: express.Response, next: expre
   }
   try {
     const token = authHeader.substring(7);
+    // MED-04: 检查 Token 是否在黑名单
+    if (tokenBlacklist.has(token)) {
+      return res.status(401).json({ success: false, message: '该登录已失效' });
+    }
     const decoded = verifyToken(token);
     (req as any).authUser = decoded;
     next();
@@ -276,12 +284,21 @@ async function startServer() {
 
   const app = express();
   const httpServer = createServer(app);
-  const io = new Server(httpServer, {
-    cors: { origin: process.env.SOCKET_ORIGINS ? process.env.SOCKET_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000'] }
-  });
 
   // 信任代理，在Docker/反向代理后获取真实IP
   app.set('trust proxy', true);
+
+  // MED-01: HTTP 安全头
+  app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    // CSP: 允许同源资源 + 字体/图片（包括外部图床等）+ Vite HMR WebSocket
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self' data:; connect-src 'self' http: https:");
+    next();
+  });
 
   app.use(express.json());
 
@@ -300,6 +317,47 @@ async function startServer() {
     next();
   });
 
+  // 注销登录（MED-04：Token 黑名单）
+  app.post('/api/logout', authMiddleware, (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      tokenBlacklist.add(token);
+    }
+    res.json({ success: true });
+  });
+
+  // MED-02: CSRF 保护中间件 — 对非安全方法校验 Origin/Referer
+  const allowedOrigins = new Set([
+    'http://localhost:5173',
+    'http://localhost:3000',
+    ...((process.env.SOCKET_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean))
+  ]);
+  function csrfMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+      const origin = req.headers.origin;
+      const referer = req.headers.referer;
+      const checkOrigin = (url: string) => {
+        try {
+          const u = new URL(url);
+          return allowedOrigins.has(`${u.protocol}//${u.host}`);
+        } catch {
+          return false;
+        }
+      };
+      if (origin && !checkOrigin(origin)) {
+        return res.status(403).json({ success: false, message: 'CSRF 校验失败' });
+      }
+      if (!origin && referer && !checkOrigin(referer)) {
+        return res.status(403).json({ success: false, message: 'CSRF 校验失败' });
+      }
+    }
+    next();
+  }
+
+  // 挂载 CSRF 中间件到所有 API 路由之前
+  app.use(csrfMiddleware);
+
   // 健康检查
   app.get('/api/health', (req, res) => {
     try {
@@ -311,6 +369,24 @@ async function startServer() {
   });
 
   // 通用登录接口，支持User@Family格式
+  // MED-03: 注册频率限制
+  const registerAttempts = new Map<string, { count: number, lastReset: number }>();
+  const REGISTER_MAX_PER_MINUTE = 5;
+  function checkRegisterRate(ip: string): boolean {
+    const key = ip;
+    const record = registerAttempts.get(key);
+    const now = Date.now();
+    if (!record || (now - record.lastReset) > 60_000) {
+      registerAttempts.set(key, { count: 1, lastReset: now });
+      return true;
+    }
+    if (record.count >= REGISTER_MAX_PER_MINUTE) {
+      return false;
+    }
+    record.count++;
+    return true;
+  }
+
   app.post('/api/login', async (req, res) => {
     const { name, password } = req.body;
     const ip = getClientIp(req);
@@ -541,7 +617,7 @@ async function startServer() {
         success: false,
         ip: getClientIp(req)
       });
-      res.status(500).json({ success: false, error: (e as Error).message });
+      res.status(500).json({ success: false, error: '操作失败，请稍后重试' });
     }
   });
 
@@ -552,7 +628,7 @@ async function startServer() {
       const logs = getLogs(year as string, month as string);
       res.json(logs.slice(0, 500)); // Limit to first 500 logs for UI performance
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      res.status(500).json({ error: '获取日志失败' });
     }
   });
 
@@ -579,12 +655,20 @@ async function startServer() {
   // API路由
   app.get('/api/notifications/:userId', authMiddleware, (req, res) => {
     const authUser = (req as any).authUser;
-    const notifications = db.prepare('SELECT * FROM notifications WHERE userId = ? ORDER BY timestamp DESC LIMIT 20').all(req.params.userId);
+    const targetUserId = req.params.userId;
+    if (authUser.role !== 'admin' && authUser.id !== targetUserId) {
+      return res.status(403).json({ success: false, message: '无权限查看该通知' });
+    }
+    const notifications = db.prepare('SELECT * FROM notifications WHERE userId = ? ORDER BY timestamp DESC LIMIT 20').all(targetUserId);
     res.json(notifications);
   });
 
   app.post('/api/notifications/read', authMiddleware, (req, res) => {
     const { userId } = req.body;
+    const authUser = (req as any).authUser;
+    if (authUser.role !== 'admin' && authUser.id !== userId) {
+      return res.status(403).json({ success: false, message: '无权限操作该通知' });
+    }
     db.prepare('UPDATE notifications SET isRead = 1 WHERE userId = ?').run(userId);
     res.json({ success: true });
   });
@@ -601,6 +685,13 @@ async function startServer() {
 
   app.post('/api/register/family', async (req, res) => {
     const { familyName, adminName, password } = req.body;
+    const ip = getClientIp(req);
+
+    // MED-03: 频率限制
+    if (!checkRegisterRate(ip)) {
+      return res.status(429).json({ success: false, message: '注册过于频繁，请稍后再试' });
+    }
+
     if (!password || password.length < 6) {
       return res.status(400).json({ success: false, message: '密码至少需要6位' });
     }
@@ -632,7 +723,7 @@ async function startServer() {
         success: false,
         ip: getClientIp(req)
       });
-      res.status(500).json({ success: false, message: '注册失败，可能家庭名称已存在' });
+      res.status(500).json({ success: false, message: '注册失败，请稍后重试' });
     }
   });
 
@@ -680,8 +771,16 @@ async function startServer() {
     const { userId, name, password } = req.body;
     const authUser = (req as any).authUser;
     try {
-      if (authUser.id !== userId && authUser.role !== 'admin') {
+      const targetUser = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as any;
+      if (!targetUser) {
+        return res.status(404).json({ success: false, message: '用户不存在' });
+      }
+      // 仅本人或 admin 可修改，且禁止修改密码
+      if (authUser.role !== 'admin' && authUser.id !== userId) {
         return res.status(403).json({ success: false, message: '无权限修改该用户资料' });
+      }
+      if (authUser.role !== 'admin' && password) {
+        return res.status(403).json({ success: false, message: '请使用专门接口修改密码' });
       }
       if (password && password.length < 6) {
         return res.status(400).json({ success: false, message: '密码至少需要6位' });
@@ -733,7 +832,7 @@ async function startServer() {
         details: `Failed to delete user: ${(e as Error).message}`,
         success: false
       });
-      res.status(500).json({ success: false, message: '删除成员失败: ' + (e instanceof Error ? e.message : '未知错误') });
+      res.status(500).json({ success: false, message: '删除成员失败' });
     }
   });
 
@@ -743,7 +842,14 @@ async function startServer() {
   });
 
   app.get('/api/users/:id', authMiddleware, (req, res) => {
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+    const authUser = (req as any).authUser;
+    const user = db.prepare('SELECT id, name, role, parentId, familyId, points, avatar FROM users WHERE id = ?').get(req.params.id) as any;
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用户不存在' });
+    }
+    if (authUser.role !== 'admin' && user.familyId !== authUser.familyId) {
+      return res.status(403).json({ success: false, message: '无权限查看该用户' });
+    }
     res.json(user);
   });
 
@@ -759,7 +865,14 @@ async function startServer() {
 
   app.post('/api/rules', authMiddleware, (req, res) => {
     const { id, parentId, title, points, icon, description, isRepeating, targetChildId } = req.body;
+    const authUser = (req as any).authUser;
+    if (authUser.role !== 'admin' && authUser.id !== parentId) {
+      return res.status(403).json({ success: false, message: '无权限创建规则' });
+    }
     const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(parentId) as any;
+    if (!user || (authUser.role !== 'admin' && user.familyId !== authUser.familyId)) {
+      return res.status(403).json({ success: false, message: '无权限创建规则' });
+    }
     try {
       db.prepare('INSERT INTO reward_rules (id, parentId, title, points, icon, description, familyId, isRepeating, targetChildId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(id, parentId, title, points, icon, description, user?.familyId, isRepeating ? 1 : 0, targetChildId || 'all');
@@ -786,18 +899,33 @@ async function startServer() {
 
   app.put('/api/rules/:id', authMiddleware, (req, res) => {
     const { title, points, icon, description, isRepeating, targetChildId } = req.body;
+    const authUser = (req as any).authUser;
+    const rule = db.prepare('SELECT familyId FROM reward_rules WHERE id = ?').get(req.params.id) as any;
+    if (!rule || (authUser.role !== 'admin' && rule.familyId !== authUser.familyId)) {
+      return res.status(403).json({ success: false, message: '无权限修改该规则' });
+    }
     db.prepare('UPDATE reward_rules SET title = ?, points = ?, icon = ?, description = ?, isRepeating = ?, targetChildId = ? WHERE id = ?')
       .run(title, points, icon, description, isRepeating ? 1 : 0, targetChildId || 'all', req.params.id);
     res.json({ success: true });
   });
 
   app.delete('/api/rules/:id', authMiddleware, (req, res) => {
+    const authUser = (req as any).authUser;
+    const rule = db.prepare('SELECT familyId FROM reward_rules WHERE id = ?').get(req.params.id) as any;
+    if (!rule || (authUser.role !== 'admin' && rule.familyId !== authUser.familyId)) {
+      return res.status(403).json({ success: false, message: '无权限删除该规则' });
+    }
     db.prepare('DELETE FROM reward_rules WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   });
 
   app.post('/api/rules/reactivate', authMiddleware, (req, res) => {
     const { ruleId, childId } = req.body;
+    const authUser = (req as any).authUser;
+    const rule = db.prepare('SELECT familyId FROM reward_rules WHERE id = ?').get(ruleId) as any;
+    if (!rule || (authUser.role !== 'admin' && rule.familyId !== authUser.familyId)) {
+      return res.status(403).json({ success: false, message: '无权限操作该规则' });
+    }
     try {
       // 归档此孩子在此规则下已批准的提交，以便可以重新提交
       db.prepare("UPDATE task_submissions SET status = 'archived' WHERE ruleId = ? AND childId = ? AND status = 'approved'").run(ruleId, childId);
@@ -819,7 +947,14 @@ async function startServer() {
 
   app.post('/api/rewards', authMiddleware, (req, res) => {
     const { id, parentId, title, pointsRequired, description, targetChildId } = req.body;
+    const authUser = (req as any).authUser;
+    if (authUser.role !== 'admin' && authUser.id !== parentId) {
+      return res.status(403).json({ success: false, message: '无权限创建奖励' });
+    }
     const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(parentId) as any;
+    if (!user || (authUser.role !== 'admin' && user.familyId !== authUser.familyId)) {
+      return res.status(403).json({ success: false, message: '无权限创建奖励' });
+    }
     db.prepare('INSERT INTO rewards (id, parentId, title, pointsRequired, description, familyId, targetChildId) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(id, parentId, title, pointsRequired, description, user?.familyId, targetChildId || 'all');
     res.status(201).json({ success: true });
@@ -827,12 +962,22 @@ async function startServer() {
 
   app.put('/api/rewards/:id', authMiddleware, (req, res) => {
     const { title, pointsRequired, description, targetChildId } = req.body;
+    const authUser = (req as any).authUser;
+    const reward = db.prepare('SELECT familyId FROM rewards WHERE id = ?').get(req.params.id) as any;
+    if (!reward || (authUser.role !== 'admin' && reward.familyId !== authUser.familyId)) {
+      return res.status(403).json({ success: false, message: '无权限修改该奖励' });
+    }
     db.prepare('UPDATE rewards SET title = ?, pointsRequired = ?, description = ?, targetChildId = ? WHERE id = ?')
       .run(title, pointsRequired, description, targetChildId || 'all', req.params.id);
     res.json({ success: true });
   });
 
   app.delete('/api/rewards/:id', authMiddleware, (req, res) => {
+    const authUser = (req as any).authUser;
+    const reward = db.prepare('SELECT familyId FROM rewards WHERE id = ?').get(req.params.id) as any;
+    if (!reward || (authUser.role !== 'admin' && reward.familyId !== authUser.familyId)) {
+      return res.status(403).json({ success: false, message: '无权限删除该奖励' });
+    }
     db.prepare('DELETE FROM rewards WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   });
@@ -852,25 +997,42 @@ async function startServer() {
     const trx = db.transaction(() => {
       db.prepare('UPDATE users SET points = points + ? WHERE id = ?').run(amount, childId);
       db.prepare('INSERT INTO point_history (id, childId, amount, reason, timestamp, type) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(historyId, childId, amount, reason, timestamp, 'earn');
+        .run(historyId, childId, amount, `手动添加 by ${authUser.name}${reason ? ' - ' + reason : ''}`, timestamp, 'manual_add');
     });
     trx();
-    io.emit('points_updated', { childId, newAmount: amount, reason });
     res.json({ success: true });
   });
 
   app.get('/api/tasks/rejected/:childId', authMiddleware, (req, res) => {
     const authUser = (req as any).authUser;
+    const child = db.prepare('SELECT familyId FROM users WHERE id = ?').get(req.params.childId) as any;
+    if (!child || (authUser.role !== 'admin' && child.familyId !== authUser.familyId)) {
+      return res.status(403).json({ success: false, message: '无权限查看该数据' });
+    }
     const tasks = db.prepare("SELECT * FROM task_submissions WHERE childId = ? AND status = 'rejected' ORDER BY timestamp DESC LIMIT 5").all(req.params.childId);
     res.json(tasks);
   });
 
   app.get('/api/tasks/all/:childId', authMiddleware, (req, res) => {
-    const tasks = db.prepare('SELECT * FROM task_submissions WHERE childId = ?').all(req.params.childId);
+    const authUser = (req as any).authUser;
+    const childId = req.params.childId;
+    // childId 可能为 'all'（家长查看所有孩子），不做单用户校验
+    if (childId !== 'all') {
+      const child = db.prepare('SELECT familyId FROM users WHERE id = ?').get(childId) as any;
+      if (!child || (authUser.role !== 'admin' && child.familyId !== authUser.familyId)) {
+        return res.status(403).json({ success: false, message: '无权限查看该数据' });
+      }
+    }
+    const tasks = db.prepare('SELECT * FROM task_submissions WHERE childId = ?').all(childId);
     res.json(tasks);
   });
 
   app.get('/api/history/:childId', authMiddleware, (req, res) => {
+    const authUser = (req as any).authUser;
+    const child = db.prepare('SELECT familyId FROM users WHERE id = ?').get(req.params.childId) as any;
+    if (!child || (authUser.role !== 'admin' && child.familyId !== authUser.familyId)) {
+      return res.status(403).json({ success: false, message: '无权限查看该数据' });
+    }
     const history = db.prepare('SELECT * FROM point_history WHERE childId = ? ORDER BY timestamp DESC').all(req.params.childId);
     res.json(history);
   });
@@ -885,6 +1047,10 @@ async function startServer() {
   app.post('/api/tasks/submit', authMiddleware, (req, res) => {
     const { id, childId, parentId, ruleId, title, points } = req.body;
     const authUser = (req as any).authUser;
+    // 校验提交者必须是本人（child 角色）
+    if (authUser.role !== 'admin' && authUser.id !== childId) {
+      return res.status(403).json({ success: false, message: '只能提交自己的任务' });
+    }
     const child = db.prepare('SELECT familyId FROM users WHERE id = ?').get(childId) as any;
     if (!child || child.familyId !== authUser.familyId) {
       return res.status(403).json({ success: false, message: '无权限提交任务' });
@@ -918,41 +1084,42 @@ async function startServer() {
       .run(id, childId, parentId, ruleId, title, points, timestamp, 'pending', user?.familyId);
     
     // 同时为家长保存持久化通知（任务提交）
-    io.emit('new_notification', { userId: parentId });
 
     res.json({ success: true });
   });
 
   app.post('/api/tasks/approve', authMiddleware, (req, res) => {
-    const { id, childId, points, title } = req.body;
+    const { id, childId, title } = req.body;
     const authUser = (req as any).authUser;
     const child = db.prepare('SELECT familyId FROM users WHERE id = ?').get(childId) as any;
     if (!child || child.familyId !== authUser.familyId || authUser.role === 'child') {
       return res.status(403).json({ success: false, message: '无权限审批任务' });
     }
+
+    // 从数据库获取任务的真实积分值，不信任客户端传入的值
+    const task = db.prepare('SELECT ruleId, points FROM task_submissions WHERE id = ?').get(id) as any;
+    if (!task) {
+      return res.status(404).json({ success: false, message: '任务不存在' });
+    }
+    const points = task.points;
     const historyId = Math.random().toString(36).substr(2, 9);
     const timestamp = Date.now();
 
     try {
       const trx = db.transaction(() => {
-        // 查找与此任务关联的规则ID
-        const task = db.prepare('SELECT ruleId FROM task_submissions WHERE id = ?').get(id) as any;
         let isAchievement = false;
-        let ruleId = '';
-        
-        if (task) {
-          ruleId = task.ruleId;
-          const rule = db.prepare('SELECT isRepeating FROM reward_rules WHERE id = ?').get(task.ruleId) as any;
-          if (rule && (rule.isRepeating === 0 || rule.isRepeating === false)) {
-            isAchievement = true;
-          }
+        let ruleId = task.ruleId;
+
+        const rule = db.prepare('SELECT isRepeating FROM reward_rules WHERE id = ?').get(ruleId) as any;
+        if (rule && (rule.isRepeating === 0 || rule.isRepeating === false)) {
+          isAchievement = true;
         }
 
         db.prepare("UPDATE task_submissions SET status = 'approved' WHERE id = ?").run(id);
         db.prepare('UPDATE users SET points = points + ? WHERE id = ?').run(points, childId);
         db.prepare('INSERT INTO point_history (id, childId, amount, reason, timestamp, type) VALUES (?, ?, ?, ?, ?, ?)')
           .run(historyId, childId, points, title, timestamp, 'earn');
-        
+
         const notifId = Math.random().toString(36).substr(2, 9);
         const notifType = isAchievement ? 'achievement_granted' : 'success';
         const notifMetadata = isAchievement ? JSON.stringify({ ruleId, title }) : null;
@@ -970,7 +1137,6 @@ async function startServer() {
         success: true
       });
 
-      io.emit('new_notification', { userId: childId });
       res.json({ success: true });
     } catch (e) {
       logAction({
@@ -979,7 +1145,7 @@ async function startServer() {
         details: `Failed to approve task ${id}: ${(e as Error).message}`,
         success: false
       });
-      res.status(500).json({ success: false, error: (e as Error).message });
+      res.status(500).json({ success: false, error: '操作失败，请稍后重试' });
     }
   });
 
@@ -1006,7 +1172,6 @@ async function startServer() {
         success: true
       });
 
-      io.emit('new_notification', { userId: childId });
       res.json({ success: true });
     } catch (e) {
       logAction({
@@ -1015,13 +1180,34 @@ async function startServer() {
         details: `Failed to reject task ${id}: ${(e as Error).message}`,
         success: false
       });
-      res.status(500).json({ success: false, error: (e as Error).message });
+      res.status(500).json({ success: false, error: '操作失败，请稍后重试' });
     }
   });
 
   app.post('/api/redemptions', authMiddleware, (req, res) => {
     const { id, childId, parentId, rewardId, rewardTitle } = req.body;
+    const authUser = (req as any).authUser;
+
+    // 校验申请者与 childId 一致，或为 admin
+    if (authUser.role !== 'admin' && authUser.id !== childId) {
+      return res.status(403).json({ success: false, message: '只能申请自己的兑换' });
+    }
+
+    const child = db.prepare('SELECT familyId FROM users WHERE id = ?').get(childId) as any;
+    if (!child) {
+      return res.status(404).json({ success: false, message: '用户不存在' });
+    }
+
     const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(parentId) as any;
+    if (!user || user.familyId !== child.familyId) {
+      return res.status(400).json({ success: false, message: '家长与孩子不在同一家庭' });
+    }
+
+    // 校验认证用户属于该家庭
+    if (authUser.role !== 'admin' && authUser.familyId !== child.familyId) {
+      return res.status(403).json({ success: false, message: '无权限操作' });
+    }
+
     const timestamp = Date.now();
     db.prepare('INSERT INTO redemption_records (id, childId, parentId, rewardId, rewardTitle, timestamp, status, familyId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, childId, parentId, rewardId, rewardTitle, timestamp, 'pending', user?.familyId);
@@ -1030,7 +1216,6 @@ async function startServer() {
     const notifId = Math.random().toString(36).substr(2, 9);
     db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
       .run(notifId, parentId, '新的兑换申请', `孩子想要兑换奖励: ${rewardTitle}`, 'info', timestamp);
-    io.emit('new_notification', { userId: parentId });
 
     res.json({ success: true });
   });
@@ -1043,17 +1228,29 @@ async function startServer() {
   });
 
   app.get('/api/redemptions/child/:childId', authMiddleware, (req, res) => {
+    const authUser = (req as any).authUser;
+    const child = db.prepare('SELECT familyId FROM users WHERE id = ?').get(req.params.childId) as any;
+    if (!child || (authUser.role !== 'admin' && child.familyId !== authUser.familyId)) {
+      return res.status(403).json({ success: false, message: '无权限查看该兑换记录' });
+    }
     const records = db.prepare('SELECT * FROM redemption_records WHERE childId = ? ORDER BY timestamp DESC').all(req.params.childId);
     res.json(records);
   });
 
   app.post('/api/redemptions/approve', authMiddleware, (req, res) => {
-    const { id, childId, rewardId, pointsCost, rewardTitle } = req.body;
+    const { id, childId, rewardId, rewardTitle } = req.body;
     const authUser = (req as any).authUser;
     const child = db.prepare('SELECT familyId FROM users WHERE id = ?').get(childId) as any;
     if (!child || child.familyId !== authUser.familyId || authUser.role === 'child') {
       return res.status(403).json({ success: false, message: '无权限审批兑换' });
     }
+
+    // 从数据库获取奖励的真实积分成本，不信任客户端传入的值
+    const reward = db.prepare('SELECT pointsRequired, title FROM rewards WHERE id = ?').get(rewardId) as any;
+    if (!reward) {
+      return res.status(404).json({ success: false, message: '奖励不存在' });
+    }
+    const pointsCost = reward.pointsRequired;
     if (child.points < pointsCost) {
       return res.status(400).json({ success: false, message: '孩子星币余额不足' });
     }
@@ -1065,11 +1262,11 @@ async function startServer() {
         db.prepare("UPDATE redemption_records SET status = 'approved' WHERE id = ?").run(id);
         db.prepare('UPDATE users SET points = points - ? WHERE id = ?').run(pointsCost, childId);
         db.prepare('INSERT INTO point_history (id, childId, amount, reason, timestamp, type) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(historyId, childId, pointsCost, `兑换奖励: ${rewardTitle || '未知奖励'}`, timestamp, 'spend');
-        
+          .run(historyId, childId, pointsCost, `兑换奖励: ${rewardTitle || reward.title || '未知奖励'}`, timestamp, 'spend');
+
         const notifId = Math.random().toString(36).substr(2, 9);
         db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)')
-          .run(notifId, childId, '心愿达成！', `太棒了！爸爸妈妈批准了你的兑换申请："${rewardTitle}"。快去抱抱他们吧！`, 'wish_granted', timestamp, JSON.stringify({ rewardId, rewardTitle }));
+          .run(notifId, childId, '心愿达成！', `太棒了！爸爸妈妈批准了你的兑换申请："${rewardTitle || reward.title}"。快去抱抱他们吧！`, 'wish_granted', timestamp, JSON.stringify({ rewardId, rewardTitle: rewardTitle || reward.title }));
       });
       trx();
 
@@ -1077,12 +1274,10 @@ async function startServer() {
         level: 'INFO',
         action: 'REDEMPTION_APPROVED',
         userId: childId,
-        details: `Approved redemption: ${rewardTitle} (${pointsCost} pts) for ${childId}`,
+        details: `Approved redemption: ${rewardTitle || reward.title} (${pointsCost} pts) for ${childId}`,
         success: true
       });
 
-      io.emit('redemption_approved', { childId, rewardId });
-      io.emit('new_notification', { userId: childId });
       res.json({ success: true });
     } catch (e) {
       logAction({
@@ -1091,7 +1286,7 @@ async function startServer() {
         details: `Failed to approve redemption ${id}: ${(e as Error).message}`,
         success: false
       });
-      res.status(500).json({ success: false, error: (e as Error).message });
+      res.status(500).json({ success: false, error: '操作失败，请稍后重试' });
     }
   });
 
@@ -1118,7 +1313,6 @@ async function startServer() {
         success: true
       });
 
-      io.emit('new_notification', { userId: childId });
       res.json({ success: true });
     } catch (e) {
       logAction({
@@ -1127,11 +1321,16 @@ async function startServer() {
         details: `Failed to reject redemption ${id}: ${(e as Error).message}`,
         success: false
       });
-      res.status(500).json({ success: false, error: (e as Error).message });
+      res.status(500).json({ success: false, error: '操作失败，请稍后重试' });
     }
   });
 
   app.get('/api/stats/:childId', authMiddleware, (req, res) => {
+    const authUser = (req as any).authUser;
+    const child = db.prepare('SELECT familyId FROM users WHERE id = ?').get(req.params.childId) as any;
+    if (!child || (authUser.role !== 'admin' && child.familyId !== authUser.familyId)) {
+      return res.status(403).json({ success: false, message: '无权限查看该数据' });
+    }
     const stats = db.prepare(`
       SELECT date(timestamp/1000, 'unixepoch') as date, SUM(amount) as total 
       FROM point_history 
@@ -1144,15 +1343,18 @@ async function startServer() {
   });
 
   app.get('/api/growth-history/:parentId', authMiddleware, (req, res) => {
+    const authUser = (req as any).authUser;
     const parentId = req.params.parentId;
     const { childId, page = 1, limit = 10 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
-    
+
     const user = db.prepare('SELECT familyId FROM users WHERE id = ?').get(parentId) as any;
-    if (!user) return res.json({ total: 0, items: [] });
+    if (!user || (authUser.role !== 'admin' && user.familyId !== authUser.familyId)) {
+      return res.status(403).json({ success: false, message: '无权限查看该成长历史' });
+    }
 
     let taskQuery = "SELECT 'task' as type, id, childId, title, points, status, timestamp FROM task_submissions WHERE familyId = ? AND status IN ('approved', 'rejected')";
-    let redemptionQuery = "SELECT 'redemption' as type, id, childId, rewardTitle as title, -points as points, status, timestamp FROM redemption_records WHERE familyId = ? AND status IN ('approved', 'rejected')";
+    let redemptionQuery = "SELECT 'redemption' as type, id, childId, rewardTitle as title, 0 as points, status, timestamp FROM redemption_records WHERE familyId = ? AND status IN ('approved', 'rejected')";
     const params: any[] = [user.familyId, user.familyId];
 
     if (childId && childId !== 'all') {
@@ -1176,25 +1378,35 @@ async function startServer() {
       const total = (db.prepare(totalQuery).get(...params) as any).count;
       res.json({ total, items });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      res.status(500).json({ error: '操作失败，请稍后重试' });
     }
   });
 
   app.delete('/api/tasks/:id', authMiddleware, (req, res) => {
+    const authUser = (req as any).authUser;
+    const task = db.prepare('SELECT * FROM task_submissions WHERE id = ?').get(req.params.id) as any;
+    if (!task || task.familyId !== authUser.familyId) {
+      return res.status(403).json({ success: false, message: '无权限删除该任务' });
+    }
     try {
       db.prepare('DELETE FROM task_submissions WHERE id = ?').run(req.params.id);
       res.json({ success: true });
     } catch (e) {
-      res.status(500).json({ success: false, error: (e as Error).message });
+      res.status(500).json({ success: false, error: '操作失败，请稍后重试' });
     }
   });
 
   app.delete('/api/redemptions/:id', authMiddleware, (req, res) => {
+    const authUser = (req as any).authUser;
+    const record = db.prepare('SELECT * FROM redemption_records WHERE id = ?').get(req.params.id) as any;
+    if (!record || record.familyId !== authUser.familyId) {
+      return res.status(403).json({ success: false, message: '无权限删除该兑换记录' });
+    }
     try {
       db.prepare('DELETE FROM redemption_records WHERE id = ?').run(req.params.id);
       res.json({ success: true });
     } catch (e) {
-      res.status(500).json({ success: false, error: (e as Error).message });
+      res.status(500).json({ success: false, error: '操作失败，请稍后重试' });
     }
   });
 
