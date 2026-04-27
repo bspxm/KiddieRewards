@@ -30,7 +30,6 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Socket } from 'socket.io-client';
 import { 
   LineChart, 
   Line, 
@@ -52,9 +51,8 @@ import { CustomSelect } from '../ui/CustomSelect';
 import { useTabState } from '../../hooks/useTabState';
 import { authFetch } from '../../lib/api';
 
-export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme, currentTheme }: { 
-  user: UserProfile, 
-  socket: Socket | null,
+export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, currentTheme }: { 
+  user: UserProfile,
   onSwitchToChild: () => void,
   onLogout: () => void,
   onSetTheme: (theme: string) => void,
@@ -152,7 +150,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
     });
     setEditingReward(null);
     fetchData();
-    if (socket) socket.emit('update_data', { parentId: user.id });
+
   };
 
   const deleteReward = async (id: string, e: React.MouseEvent) => {
@@ -160,7 +158,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
     if (!confirm('确定要删除这个愿望吗？')) return;
     await authFetch(`/api/rewards/${id}`, { method: 'DELETE' });
     fetchData();
-    if (socket) socket.emit('update_data', { parentId: user.id });
+
   };
 
   const fetchData = async () => {
@@ -249,11 +247,21 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           userId: user.id, 
-          name: profileName, 
-          password: profilePassword || undefined 
+          name: profileName
         })
       });
       if (!res.ok) throw new Error();
+
+      // 密码修改走独立端点
+      if (profilePassword?.trim()) {
+        const pwRes = await authFetch('/api/users/update-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id, newPassword: profilePassword })
+        });
+        if (!pwRes.ok) throw new Error('密码更新失败');
+      }
+
       alert('资料更新成功！下次登录时生效。');
       setProfilePassword('');
     } catch (e) {
@@ -275,7 +283,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
       
       if (selectedChildId === memberToDelete.id) setSelectedChildId(null);
       fetchData();
-      if (socket) socket.emit('update_data', { parentId: user.id });
+
       setMemberToDelete(null);
     } catch (e) {
       console.error("Delete Member Error:", e);
@@ -304,7 +312,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
     });
     setEditingRule(null);
     fetchData();
-    if (socket) socket.emit('update_data', { parentId: user.id });
+
   };
 
   const deleteRule = async (id: string, e: React.MouseEvent) => {
@@ -312,7 +320,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
     if (!confirm('确定要删除这个规则吗？小朋友将无法再申请此任务。')) return;
     await authFetch(`/api/rules/${id}`, { method: 'DELETE' });
     fetchData();
-    if (socket) socket.emit('update_data', { parentId: user.id });
+
   };
 
   const reactivateRule = async (ruleId: string, childId: string) => {
@@ -324,7 +332,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
       });
       if (res.ok) {
         fetchData();
-        if (socket) socket.emit('update_data', { parentId: user.id });
+
       }
     } catch (e) {
       console.error(e);
@@ -368,10 +376,8 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
   }, [records, children, user.id]);
 
   useEffect(() => {
-    // 实时自动获取已根据用户请求禁用
-    if (!socket) return;
-    // socket.on('new_notification', fetchData); // 已禁用
-  }, [socket, user.id]);
+    // WebSocket 已移除
+  }, [user.id]);
 
   const awardPointsDirectly = async (rule: RewardRule) => {
     if (!child) return;
@@ -438,7 +444,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
       })
     });
     fetchData();
-    if (socket) socket.emit('update_data', { parentId: user.id });
+
   };
 
   const rejectRedemption = async () => {
@@ -456,7 +462,7 @@ export const ParentView = ({ user, socket, onSwitchToChild, onLogout, onSetTheme
     setRedemptionToReject(null);
     setRejectionReasonInput('');
     fetchData();
-    if (socket) socket.emit('update_data', { parentId: user.id });
+
   };
 
   return (

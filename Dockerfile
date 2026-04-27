@@ -1,5 +1,5 @@
 # ========= 构建阶段 =========
-FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/node:22-slim AS builder
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/node:22 AS builder
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ RUN npm run build
 
 # 2. 编译服务端代码
 # 将 server.js 放在根目录，避免静态路径冲突
-RUN npx esbuild server.ts --bundle --platform=node --format=esm --target=node22 --outfile=server.js --external:express --external:vite --external:better-sqlite3 --external:socket.io
+RUN npx esbuild server.ts --bundle --platform=node --format=esm --target=node22 --outfile=server.js --external:express --external:vite --external:better-sqlite3 --external:socket.io --external:jsonwebtoken --external:jws --external:bcryptjs --external:cors --external:dotenv --external:lodash --external:ms
 
 # 3. 剔除开发依赖
 RUN npm prune --production
