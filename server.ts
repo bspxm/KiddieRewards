@@ -51,26 +51,6 @@ function recordSuccess(key: string) {
   loginFailures.delete(key);
 }
 
-async function verifyPassword(inputPassword: string, storedPassword: string, userId: string): Promise<boolean> {
-  if (!storedPassword) return false;
-  // bcrypt hash 以 $2 开头
-  if (storedPassword.startsWith('$2')) {
-    return comparePassword(inputPassword, storedPassword);
-  }
-  // 明文密码：直接比对，成功后加密存储
-  if (inputPassword === storedPassword) {
-    const hashed = await hashPassword(inputPassword);
-    try {
-      db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashed, userId);
-      console.log(`[AUTH] Upgraded plaintext password for user ${userId}`);
-    } catch (e) {
-      console.warn(`[AUTH] Failed to upgrade password for ${userId}:`, e);
-    }
-    return true;
-  }
-  return false;
-}
-
 // 初始化数据库表
 db.exec(`
   CREATE TABLE IF NOT EXISTS families (
@@ -436,7 +416,7 @@ async function startServer() {
     // 1. Super Admin检查
     if (name.toLowerCase() === 'admin') {
       const admin = db.prepare("SELECT * FROM users WHERE role = 'admin' AND name = 'admin'").get() as any;
-      if (admin && await verifyPassword(password, admin.password, admin.id)) {
+      if (admin && await comparePassword(password, admin.password)) {
         recordSuccess(clientKey);
         const token = signToken({ id: admin.id, name: admin.name, role: admin.role, familyId: admin.familyId, parentId: admin.parentId });
         logAction({
@@ -501,7 +481,7 @@ async function startServer() {
       return res.status(401).json({ success: false, message: '用户名或密码错误' });
     }
 
-    const passwordValid = await verifyPassword(password, user.password || '', user.id);
+    const passwordValid = await comparePassword(password, user.password || '');
     if (!passwordValid) {
       recordFailure(clientKey);
       logAction({
@@ -542,7 +522,7 @@ async function startServer() {
     const { currentPassword, newPassword } = req.body;
     const admin = db.prepare("SELECT * FROM users WHERE role = 'admin' AND name = 'admin'").get() as any;
     
-    if (!admin || !(await verifyPassword(currentPassword, admin.password, admin.id))) {
+    if (!admin || !(await comparePassword(currentPassword, admin.password))) {
       return res.status(401).json({ success: false, error: '当前密码错误' });
     }
 

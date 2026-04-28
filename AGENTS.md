@@ -42,7 +42,7 @@ The server auto-creates the `data/` directory on startup. Database tables are cr
 - **Token blacklist** (`tokenBlacklist` Set): `POST /api/logout` adds the token to the blacklist. The middleware checks this before verifying.
 - Brute-force protection: 5 attempts per IP+username combo, then 10-minute cooldown
 - **JWT_SECRET persistence**: If not set in `.env`, the secret is auto-generated and persisted to `data/.jwt_secret` (mode 0600), so it survives restarts. Without a fixed secret, tokens invalidate on restart.
-- **Lazy password upgrade**: Login uses `verifyPassword()` which handles both bcrypt hashes (`$2*` prefix) and plaintext. If a plaintext match succeeds, it immediately hashes and stores the bcrypt version — so plaintext passwords auto-upgrade on first successful login after deployment.
+- Registration rate limit: 5 family registrations per minute per IP
 
 ### Security Middleware
 
