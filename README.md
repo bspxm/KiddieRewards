@@ -1,7 +1,3 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
-
 # KiddieRewards — 圆滚滚银行
 
 一个家庭行为奖励追踪应用。家长自定义任务和奖励规则，孩子通过完成任务赚取积分，再用积分兑换心仪的奖励。支持多家庭共享部署、管理员工具和完整操作日志。
