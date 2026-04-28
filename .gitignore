@@ -4,6 +4,9 @@ dist/
 logs/
 data/
 coverage/
+.crush/
+.codeartsdoer
+.arts/
 .DS_Store
 *.log
 .env*
