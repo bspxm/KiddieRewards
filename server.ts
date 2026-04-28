@@ -152,6 +152,7 @@ try { db.exec("ALTER TABLE reward_rules ADD COLUMN targetChildId TEXT DEFAULT 'a
 try { db.exec("ALTER TABLE rewards ADD COLUMN familyId TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE rewards ADD COLUMN targetChildId TEXT DEFAULT 'all'"); } catch(e) {}
 try { db.exec("ALTER TABLE redemption_records ADD COLUMN familyId TEXT"); } catch(e) {}
+try { db.exec("ALTER TABLE redemption_records ADD COLUMN rejectionReason TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE task_submissions ADD COLUMN familyId TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE families ADD COLUMN createdAt INTEGER"); } catch(e) {}
 try { db.exec("ALTER TABLE families ADD COLUMN lastActiveAt INTEGER"); } catch(e) {}
@@ -1090,6 +1091,9 @@ async function startServer() {
       .run(id, childId, parentId, ruleId, title, points, timestamp, 'pending', user?.familyId);
     
     // 同时为家长保存持久化通知（任务提交）
+    const notifId = Math.random().toString(36).substr(2, 9);
+    db.prepare('INSERT INTO notifications (id, userId, title, message, type, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(notifId, parentId, '新的加分申请', `孩子提交了任务: ${title}`, 'info', timestamp);
 
     res.json({ success: true });
   });
@@ -1212,6 +1216,15 @@ async function startServer() {
     // 校验认证用户属于该家庭
     if (authUser.role !== 'admin' && authUser.familyId !== child.familyId) {
       return res.status(403).json({ success: false, message: '无权限操作' });
+    }
+
+    // 校验孩子星币是否足够，但暂不扣减，等家长同意后再扣
+    const reward = db.prepare('SELECT pointsRequired FROM rewards WHERE id = ?').get(rewardId) as any;
+    if (!reward) {
+      return res.status(404).json({ success: false, message: '奖励不存在' });
+    }
+    if (child.points < reward.pointsRequired) {
+      return res.status(400).json({ success: false, message: '星币不足哦，再努力积累一点吧！加油！' });
     }
 
     const timestamp = Date.now();
@@ -1360,7 +1373,7 @@ async function startServer() {
     }
 
     let taskQuery = "SELECT 'task' as type, id, childId, title, points, status, timestamp FROM task_submissions WHERE familyId = ? AND status IN ('approved', 'rejected')";
-    let redemptionQuery = "SELECT 'redemption' as type, id, childId, rewardTitle as title, 0 as points, status, timestamp FROM redemption_records WHERE familyId = ? AND status IN ('approved', 'rejected')";
+    let redemptionQuery = "SELECT 'redemption' as type, rr.id, rr.childId, rr.rewardTitle as title, -(r.pointsRequired) as points, rr.status, rr.timestamp FROM redemption_records rr LEFT JOIN rewards r ON rr.rewardId = r.id WHERE rr.familyId = ? AND rr.status IN ('approved', 'rejected')";
     const params: any[] = [user.familyId, user.familyId];
 
     if (childId && childId !== 'all') {
