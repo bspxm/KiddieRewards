@@ -49,6 +49,18 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
   const [showPointsIncrease, setShowPointsIncrease] = useState(false);
   const [pointsDiff, setPointsDiff] = useState(0);
 
+  const refreshNotifications = async () => {
+    try {
+      const res = await authFetch(`/api/notifications/${user.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data);
+      }
+    } catch (error) {
+      console.error("refreshNotifications Error:", error);
+    }
+  };
+
   const fetchData = async () => {
     try {
       const [resRewards, resHistory, resUser, resRules, resRejected, resNotifs, resRedemptions, resAllSubs] = await Promise.all([
@@ -84,7 +96,7 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
       setNotifications(notifsData);
       setRedemptions(redemptionsData);
       setAllSubmissions(allSubsData);
-      
+
       const newPoints = userData.points;
       const cachedPoints = localStorage.getItem(`kiddie_last_points_${user.id}`);
       if (cachedPoints !== null) {
@@ -108,7 +120,7 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
   const filteredRules = useMemo(() => {
     return rules.filter(rule => {
       if (rule.isRepeating) return true;
-      const hasSubmission = allSubmissions.some(s => s.ruleId === rule.id && s.status !== 'rejected');
+      const hasSubmission = allSubmissions.some(s => s.ruleId === rule.id && s.status === 'approved');
       return !hasSubmission;
     });
   }, [rules, allSubmissions]);
@@ -140,6 +152,17 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
   useEffect(() => {
     fetchData();
     requestNotificationPermission();
+
+    let lastRefresh = 0;
+    const handleGlobalClick = () => {
+      const now = Date.now();
+      if (now - lastRefresh > 5000) {
+        lastRefresh = now;
+        refreshNotifications();
+      }
+    };
+    document.addEventListener('click', handleGlobalClick);
+    return () => document.removeEventListener('click', handleGlobalClick);
   }, [user]);
 
   useEffect(() => {
@@ -166,19 +189,9 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
 
   const openNotifCenter = async () => {
     const data = await fetchData();
-    setShowNotifCenter(true);
-    if (data) {
-      markNotifsRead(data.notifications, data.rewards);
-    } else {
-      markNotifsRead();
-    }
-  };
+    const targetNotifs = data?.notifications || notifications;
+    const targetRewards = data?.rewards || rewards;
 
-  const markNotifsRead = async (manualNotifs?: AppNotification[], manualRewards?: RewardItem[]) => {
-    const targetNotifs = manualNotifs || notifications;
-    const targetRewards = manualRewards || rewards;
-
-    // Check for unread wish achievements first
     const unreadWishNotif = targetNotifs.find(n => !n.isRead && n.type === 'wish_granted');
     const unreadAchievementNotif = targetNotifs.find(n => !n.isRead && n.type === 'achievement_granted');
 
@@ -194,6 +207,7 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
       } catch (e) {
         console.error("Error parsing notification metadata:", e);
       }
+      await markNotifsRead();
     } else if (unreadAchievementNotif) {
       try {
         const metadata = JSON.parse(unreadAchievementNotif.metadata || '{}');
@@ -205,8 +219,18 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
       } catch (e) {
         console.error("Error parsing achievement notification metadata:", e);
       }
+      await markNotifsRead();
+    } else {
+      setShowNotifCenter(true);
     }
+  };
 
+  const closeNotifCenter = async () => {
+    setShowNotifCenter(false);
+    await markNotifsRead();
+  };
+
+  const markNotifsRead = async () => {
     await authFetch('/api/notifications/read', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -365,15 +389,13 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
                 const ruleSubmissions = allSubmissions.filter(s => s.ruleId === rule.id);
                 const pendingSubmission = ruleSubmissions.find(s => s.status === 'pending');
                 const latestSubmission = ruleSubmissions.sort((a, b) => b.timestamp - a.timestamp)[0];
-                const isRejectedToday = latestSubmission?.status === 'rejected' && new Date(latestSubmission.timestamp).toDateString() === new Date().toDateString();
-                
                 // Success criteria based on rule type
                 const isApprovedToday = ruleSubmissions.some(s => s.status === 'approved' && new Date(s.timestamp).toDateString() === new Date().toDateString());
                 const isCompletedEver = ruleSubmissions.some(s => s.status === 'approved');
-                
+
                 // Rule disabling logic
                 const isAlreadyClaimed = rule.isRepeating ? isApprovedToday : isCompletedEver;
-                const isRuleDisabled = submittingId === rule.id || !!pendingSubmission || isRejectedToday || isAlreadyClaimed;
+                const isRuleDisabled = submittingId === rule.id || !!pendingSubmission || isAlreadyClaimed;
 
                 return (
                 <button 
@@ -412,11 +434,9 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
                    }`}>
                       {submittingId === rule.id ? (
                         <div className="w-5 h-5 border-2 border-brand border-t-transparent rounded-full animate-spin" />
-                      ) : pendingSubmission ? (
-                        <span className="text-xs font-black uppercase tracking-widest bg-gray-200 text-gray-500 px-3 py-1.5 rounded-full whitespace-nowrap">审核中</span>
-                      ) : isRejectedToday ? (
-                        <span className="text-xs font-black uppercase tracking-widest bg-red-50 text-red-500 px-3 py-1.5 rounded-full whitespace-nowrap">未通过</span>
-                      ) : isAlreadyClaimed ? (
+                       ) : pendingSubmission ? (
+                         <span className="text-xs font-black uppercase tracking-widest bg-gray-200 text-gray-500 px-3 py-1.5 rounded-full whitespace-nowrap">审核中</span>
+                       ) : isAlreadyClaimed ? (
                         <span className="text-xs font-black uppercase tracking-widest bg-green-50 text-green-600 px-3 py-1.5 rounded-full whitespace-nowrap border border-green-100">
                           {rule.isRepeating ? '今日已完成' : '已达成成就'}
                         </span>
@@ -521,31 +541,34 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
       <AnimatePresence>
         {showNotifCenter && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowNotifCenter(false)} className="absolute inset-0 bg-black/40 backdrop-blur-md" />
-             <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="bg-white rounded-[3rem] p-8 max-w-md w-full relative z-10 shadow-2xl">
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-2xl font-black text-gray-900">消息盒子</h2>
-                  <button onClick={() => setShowNotifCenter(false)} className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center text-gray-400">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeNotifCenter} className="absolute inset-0 bg-black/40 backdrop-blur-md" />
+              <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="bg-white rounded-[3rem] p-8 max-w-md w-full relative z-10 shadow-2xl">
+                 <div className="flex items-center justify-between mb-8">
+                   <h2 className="text-2xl font-black text-gray-900">消息盒子</h2>
+                   <button onClick={closeNotifCenter} className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center text-gray-400">
                     <X size={20} />
                   </button>
                 </div>
-                <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
-                   {('Notification' in window && Notification.permission !== 'granted') && (
-                     <button 
-                       onClick={() => requestNotificationPermission().then(() => fetchData())}
-                       className="w-full p-4 bg-brand-light text-brand rounded-2xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-brand hover:text-white transition-all"
-                     >
-                       <Bell size={16} />
-                       开启浏览器实时通知
-                     </button>
-                   )}
-                   {notifications.map(notif => (
-                     <div key={notif.id} className={`p-5 rounded-[2rem] border ${notif.isRead ? 'bg-gray-50/50 border-gray-100' : 'bg-white border-brand-light shadow-sm'}`}>
-                        <p className="font-black text-sm text-gray-900 mb-1">{notif.title}</p>
-                        <p className="text-sm text-gray-600 font-medium">{notif.message}</p>
-                     </div>
-                   ))}
-                </div>
+                 <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
+                    {('Notification' in window && Notification.permission !== 'granted') && (
+                      <button 
+                        onClick={() => requestNotificationPermission().then(() => fetchData())}
+                        className="w-full p-4 bg-brand-light text-brand rounded-2xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-brand hover:text-white transition-all"
+                      >
+                        <Bell size={16} />
+                        开启浏览器实时通知
+                      </button>
+                    )}
+                    {notifications.filter(n => !n.isRead).length === 0 && (
+                      <p className="text-sm text-gray-400 text-center py-4">暂无新消息</p>
+                    )}
+                    {notifications.filter(n => !n.isRead).map(notif => (
+                      <div key={notif.id} className="p-5 rounded-[2rem] border bg-white border-brand-light shadow-sm">
+                         <p className="font-black text-sm text-gray-900 mb-1">{notif.title}</p>
+                         <p className="text-sm text-gray-600 font-medium">{notif.message}</p>
+                      </div>
+                    ))}
+                 </div>
              </motion.div>
           </div>
         )}
@@ -578,7 +601,7 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
               <h2 className="text-4xl font-black text-gray-900 mb-2">好消息！</h2>
               <p className="text-brand font-black text-xl mb-8">爸爸妈妈同意啦！快去领取你的 <span className="text-secondary underline decoration-4 underline-offset-4">{celebratedReward.title}</span> 吧！</p>
               <button 
-                onClick={() => setShowCelebration(false)}
+                onClick={() => { setShowCelebration(false); setShowNotifCenter(false); }}
                 className="w-full bg-brand text-white py-6 rounded-[2.2rem] font-black text-2xl shadow-xl hover:brightness-110 active:scale-95 transition-all"
               >
                 太棒了，出发！
@@ -628,7 +651,7 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
                <p className="text-gray-400 font-medium mb-10 px-8">每一步努力都被爸爸妈妈看在眼里哦！你真是太棒了！</p>
                
                <button 
-                 onClick={() => setShowAchievementCelebration(false)}
+                 onClick={() => { setShowAchievementCelebration(false); setShowNotifCenter(false); }}
                  className="w-full bg-orange-500 text-white py-6 rounded-[2.2rem] font-black text-2xl shadow-[0_12px_32px_-8px_rgba(249,115,22,0.5)] hover:bg-orange-600 active:scale-95 transition-all"
                >
                  收下荣誉！

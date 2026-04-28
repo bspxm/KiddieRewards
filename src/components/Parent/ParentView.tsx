@@ -339,9 +339,33 @@ export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, curren
     }
   };
 
+  const refreshPending = async () => {
+    try {
+      const [resTasks, resRecords] = await Promise.all([
+        authFetch(`/api/tasks/pending/${user.id}`),
+        authFetch(`/api/redemptions/${user.id}`)
+      ]);
+      if (resTasks.ok) setPendingTasks(await resTasks.json());
+      if (resRecords.ok) setRecords(await resRecords.json());
+    } catch (error) {
+      console.error("refreshPending Error:", error);
+    }
+  };
+
   useEffect(() => {
     fetchData();
     requestNotificationPermission();
+
+    let lastRefresh = 0;
+    const handleGlobalClick = () => {
+      const now = Date.now();
+      if (now - lastRefresh > 5000) {
+        lastRefresh = now;
+        refreshPending();
+      }
+    };
+    document.addEventListener('click', handleGlobalClick);
+    return () => document.removeEventListener('click', handleGlobalClick);
   }, [user, selectedChildId]);
 
   useEffect(() => {
@@ -431,38 +455,55 @@ export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, curren
   const approveRedemption = async (record: RedemptionRecord) => {
     const targetReward = rewards.find(r => r.id === record.rewardId);
     const pointsCost = targetReward ? targetReward.pointsRequired : 0;
-    
-    await authFetch('/api/redemptions/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        id: record.id, 
-        childId: record.childId, 
-        rewardId: record.rewardId, 
-        pointsCost,
-        rewardTitle: record.rewardTitle
-      })
-    });
-    fetchData();
-
+    try {
+      const res = await authFetch('/api/redemptions/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          id: record.id, 
+          childId: record.childId, 
+          rewardId: record.rewardId, 
+          pointsCost,
+          rewardTitle: record.rewardTitle
+        })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || data.error || '批准失败，请稍后重试');
+        return;
+      }
+      fetchData();
+    } catch (e) {
+      console.error('approveRedemption error:', e);
+      alert('网络错误，请稍后重试');
+    }
   };
 
   const rejectRedemption = async () => {
     if (!redemptionToReject) return;
-    await authFetch('/api/redemptions/reject', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        id: redemptionToReject.id, 
-        childId: redemptionToReject.childId, 
-        rewardTitle: redemptionToReject.rewardTitle,
-        rejectionReason: rejectionReasonInput || '抱歉，暂时不能兑换哦，再继续表现棒棒的吧！'
-      })
-    });
-    setRedemptionToReject(null);
-    setRejectionReasonInput('');
-    fetchData();
-
+    try {
+      const res = await authFetch('/api/redemptions/reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          id: redemptionToReject.id, 
+          childId: redemptionToReject.childId, 
+          rewardTitle: redemptionToReject.rewardTitle,
+          rejectionReason: rejectionReasonInput || '抱歉，暂时不能兑换哦，再继续表现棒棒的吧！'
+        })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || data.error || '拒绝失败，请稍后重试');
+        return;
+      }
+      setRedemptionToReject(null);
+      setRejectionReasonInput('');
+      fetchData();
+    } catch (e) {
+      console.error('rejectRedemption error:', e);
+      alert('网络错误，请稍后重试');
+    }
   };
 
   return (
@@ -533,7 +574,8 @@ export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, curren
               ))}
             </div>
           </div>
-          
+
+
           <div className="pt-6 border-t border-gray-50">
             <h2 className="text-[10px] font-bold uppercase tracking-[2px] text-gray-400 mb-4 px-2">视图预览</h2>
             <button 
@@ -1028,9 +1070,9 @@ export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, curren
                              <button onClick={(e) => deleteRule(rule.id, e)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors">
                                 <Trash2 size={18} />
                              </button>
-                          </div>
-                      </div>
-                    );
+        </div>
+      </div>
+    );
                   })}
                </div>
             </motion.div>
@@ -1608,15 +1650,15 @@ export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, curren
             { id: 'rewards_manage', icon: Gift },
             { id: 'redemptions', icon: Check },
             { id: 'growth_manage', icon: Activity },
-            { id: 'analysis', icon: PieChart },
-            { id: 'family_manage', icon: Settings }
-          ].map(item => (
-            <button 
-              key={item.id} 
-              onClick={() => setActiveTab(item.id)} 
-              className={`p-4 rounded-2xl transition-all flex items-center justify-center ${activeTab === item.id ? 'bg-brand text-white shadow-lg shadow-brand/20' : 'text-gray-400 active:bg-gray-50'}`}
-            >
-              <item.icon size={22} />
+             { id: 'analysis', icon: PieChart },
+             { id: 'family_manage', icon: Settings }
+           ].map(item => (
+             <button 
+               key={item.id} 
+               onClick={() => setActiveTab(item.id)} 
+               className={`p-4 rounded-2xl transition-all flex items-center justify-center ${activeTab === item.id ? 'bg-brand text-white shadow-lg shadow-brand/20' : 'text-gray-400 active:bg-gray-50'}`}
+             >
+               <item.icon size={22} />
             </button>
           ))}
           <div className="w-6 shrink-0" />

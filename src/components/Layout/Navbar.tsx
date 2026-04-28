@@ -6,11 +6,13 @@ import {
   Bell,
   LogOut,
   Sparkles,
-  Smile
+  Smile,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserProfile } from '../../types';
+import { UserProfile, AppNotification } from '../../types';
 import { requestNotificationPermission } from '../../lib/notificationHelper';
+import { authFetch } from '../../lib/api';
 
 export const Navbar = ({ user, onLogout, isChildMode, onSwitchMode, onSetTheme, currentTheme }: { 
   user: UserProfile | null, 
@@ -20,11 +22,54 @@ export const Navbar = ({ user, onLogout, isChildMode, onSwitchMode, onSetTheme, 
   onSetTheme?: (theme: string) => void,
   currentTheme?: string
 }) => {
-  const [notifications, setNotifications] = useState<string[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotif, setShowNotif] = useState(false);
   const [showThemeSelector, setShowThemeSelector] = useState(false);
 
+  const fetchNotifications = async () => {
+    if (!user) return;
+    try {
+      const res = await authFetch(`/api/notifications/${user.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data);
+      }
+    } catch (e) {
+      console.error('Navbar fetchNotifications error:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 15000);
+    return () => clearInterval(interval);
+  }, [user?.id]);
+
+  const openNotifCenter = async () => {
+    setShowNotif(true);
+    setShowThemeSelector(false);
+    await fetchNotifications();
+  };
+
+  const closeNotifCenter = async () => {
+    setShowNotif(false);
+    if (user && notifications.some(n => !n.isRead)) {
+      try {
+        await authFetch('/api/notifications/read', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id })
+        });
+      } catch (e) {
+        console.error('mark read error:', e);
+      }
+    }
+  };
+
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+
   return (
+    <>
     <nav className="fixed top-0 left-0 right-0 h-20 bg-white/80 backdrop-blur-md border-b border-gray-100 z-[100] flex items-center justify-between px-6 lg:px-12">
       <div className="flex items-center gap-2">
         <div className="w-10 h-10 bg-brand rounded-xl flex items-center justify-center text-white shadow-lg shadow-brand-light">
@@ -86,44 +131,16 @@ export const Navbar = ({ user, onLogout, isChildMode, onSwitchMode, onSetTheme, 
         {!isChildMode && (
           <div className="relative">
             <button 
-              onClick={() => { setShowNotif(!showNotif); setShowThemeSelector(false); }}
+              onClick={openNotifCenter}
               className="p-2 text-gray-400 hover:text-brand hover:bg-brand-light rounded-full transition-colors relative"
             >
               <Bell size={20} />
-              {notifications.length > 0 && (
-                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 min-w-[18px] h-[18px] leading-[18px] text-center bg-red-500 text-white text-[10px] font-black rounded-full border-2 border-white">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
               )}
             </button>
-            <AnimatePresence>
-              {showNotif && (
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  className="absolute right-0 mt-2 w-64 bg-white border border-gray-100 rounded-2xl shadow-xl p-4 z-50"
-                >
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">通知</h3>
-                  {('Notification' in window && Notification.permission !== 'granted') && (
-                    <button 
-                      onClick={() => requestNotificationPermission()}
-                      className="w-full mb-3 p-2 bg-brand-light text-brand rounded-xl font-bold text-[10px] flex items-center justify-center gap-2 hover:bg-brand hover:text-white transition-all"
-                    >
-                      <Bell size={12} />
-                      开启浏览器通知
-                    </button>
-                  )}
-                  {notifications.length === 0 ? (
-                    <p className="text-sm text-gray-500 py-4 text-center">暂无消息</p>
-                  ) : (
-                    <div className="space-y-2 max-h-60 overflow-y-auto">
-                      {notifications.map((n, i) => (
-                        <p key={i} className="text-sm text-gray-700 bg-gray-50 p-2 rounded-lg">{n}</p>
-                      ))}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
           </div>
         )}
 
@@ -143,5 +160,43 @@ export const Navbar = ({ user, onLogout, isChildMode, onSwitchMode, onSetTheme, 
         </div>
       </div>
     </nav>
+
+    <AnimatePresence>
+      {showNotif && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeNotifCenter} className="absolute inset-0 bg-black/40 backdrop-blur-md" />
+          <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="bg-white rounded-[2.5rem] p-8 max-w-md w-full relative z-10 shadow-2xl">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl font-black text-gray-900">消息盒子</h2>
+              <button onClick={closeNotifCenter} className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
+              {('Notification' in window && Notification.permission !== 'granted') && (
+                <button 
+                  onClick={() => requestNotificationPermission()}
+                  className="w-full p-4 bg-brand-light text-brand rounded-2xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-brand hover:text-white transition-all"
+                >
+                  <Bell size={16} />
+                  开启浏览器通知
+                </button>
+              )}
+              {notifications.filter(n => !n.isRead).length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">暂无新消息</p>
+              )}
+              {notifications.filter(n => !n.isRead).map(notif => (
+                <div key={notif.id} className="p-5 rounded-2xl border bg-white border-brand-light shadow-sm">
+                  <p className="font-black text-sm text-gray-900 mb-1">{notif.title}</p>
+                  <p className="text-sm text-gray-600 font-medium">{notif.message}</p>
+                  <p className="text-[10px] text-gray-400 mt-2">{new Date(notif.timestamp).toLocaleString()}</p>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+    </>
   );
 };
