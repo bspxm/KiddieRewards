@@ -51,6 +51,26 @@ function recordSuccess(key: string) {
   loginFailures.delete(key);
 }
 
+async function verifyPassword(inputPassword: string, storedPassword: string, userId: string): Promise<boolean> {
+  if (!storedPassword) return false;
+  // bcrypt hash 以 $2 开头
+  if (storedPassword.startsWith('$2')) {
+    return comparePassword(inputPassword, storedPassword);
+  }
+  // 明文密码：直接比对，成功后加密存储
+  if (inputPassword === storedPassword) {
+    const hashed = await hashPassword(inputPassword);
+    try {
+      db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashed, userId);
+      console.log(`[AUTH] Upgraded plaintext password for user ${userId}`);
+    } catch (e) {
+      console.warn(`[AUTH] Failed to upgrade password for ${userId}:`, e);
+    }
+    return true;
+  }
+  return false;
+}
+
 // 初始化数据库表
 db.exec(`
   CREATE TABLE IF NOT EXISTS families (
@@ -331,6 +351,7 @@ async function startServer() {
   const allowedOrigins = new Set([
     'http://localhost:5173',
     'http://localhost:3000',
+    'https://kr.gxbs.cn',
     ...((process.env.SOCKET_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean))
   ]);
   function csrfMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -340,7 +361,12 @@ async function startServer() {
       const checkOrigin = (url: string) => {
         try {
           const u = new URL(url);
-          return allowedOrigins.has(`${u.protocol}//${u.host}`);
+          const originStr = `${u.protocol}//${u.host}`;
+          // 放行静态允许的 Origin
+          if (allowedOrigins.has(originStr)) return true;
+          // 同源请求自动放行（前后端同一服务，Origin hostname 与 req.hostname 一致即合法）
+          if (req.hostname && u.hostname.toLowerCase() === req.hostname.toLowerCase()) return true;
+          return false;
         } catch {
           return false;
         }
@@ -410,7 +436,7 @@ async function startServer() {
     // 1. Super Admin检查
     if (name.toLowerCase() === 'admin') {
       const admin = db.prepare("SELECT * FROM users WHERE role = 'admin' AND name = 'admin'").get() as any;
-      if (admin && await comparePassword(password, admin.password)) {
+      if (admin && await verifyPassword(password, admin.password, admin.id)) {
         recordSuccess(clientKey);
         const token = signToken({ id: admin.id, name: admin.name, role: admin.role, familyId: admin.familyId, parentId: admin.parentId });
         logAction({
@@ -475,7 +501,7 @@ async function startServer() {
       return res.status(401).json({ success: false, message: '用户名或密码错误' });
     }
 
-    const passwordValid = await comparePassword(password, user.password || '');
+    const passwordValid = await verifyPassword(password, user.password || '', user.id);
     if (!passwordValid) {
       recordFailure(clientKey);
       logAction({
@@ -516,7 +542,7 @@ async function startServer() {
     const { currentPassword, newPassword } = req.body;
     const admin = db.prepare("SELECT * FROM users WHERE role = 'admin' AND name = 'admin'").get() as any;
     
-    if (!admin || !(await comparePassword(currentPassword, admin.password))) {
+    if (!admin || !(await verifyPassword(currentPassword, admin.password, admin.id))) {
       return res.status(401).json({ success: false, error: '当前密码错误' });
     }
 

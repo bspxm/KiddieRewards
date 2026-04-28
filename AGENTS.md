@@ -42,12 +42,12 @@ The server auto-creates the `data/` directory on startup. Database tables are cr
 - **Token blacklist** (`tokenBlacklist` Set): `POST /api/logout` adds the token to the blacklist. The middleware checks this before verifying.
 - Brute-force protection: 5 attempts per IP+username combo, then 10-minute cooldown
 - **JWT_SECRET persistence**: If not set in `.env`, the secret is auto-generated and persisted to `data/.jwt_secret` (mode 0600), so it survives restarts. Without a fixed secret, tokens invalidate on restart.
-- Registration rate limit: 5 family registrations per minute per IP
+- **Lazy password upgrade**: Login uses `verifyPassword()` which handles both bcrypt hashes (`$2*` prefix) and plaintext. If a plaintext match succeeds, it immediately hashes and stores the bcrypt version — so plaintext passwords auto-upgrade on first successful login after deployment.
 
 ### Security Middleware
 
 1. **HTTP Security Headers** (MED-01): Every response gets `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, and a CSP header.
-2. **CSRF Protection** (MED-02): `POST/PUT/DELETE/PATCH` requests are validated against an allowed origins list (hardcoded `localhost:5173`, `localhost:3000`, plus `SOCKET_ORIGINS` env var). Checks `Origin` header first, falls back to `Referer`.
+2. **CSRF Protection** (MED-02): `POST/PUT/DELETE/PATCH` requests are validated against an allowed origins list (hardcoded `localhost:5173`, `localhost:3000`, plus `SOCKET_ORIGINS` env var). **Auto-passes same-host requests** — if `Origin/Referer` host matches `req.host`, it's allowed. This works behind Cloudflare Tunnel or any reverse proxy without config changes.
 3. **Trust proxy** is enabled (`app.set('trust proxy', true)`) for real IP detection behind Docker/reverse proxy/Cloudflare.
 4. **Client IP detection**: Checks `cf-connecting-ip` header first (Cloudflare), then falls back to `req.ip`.
 
