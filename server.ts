@@ -671,13 +671,18 @@ async function startServer() {
   });
 
   app.post('/api/notifications/read', authMiddleware, (req, res) => {
-    const { userId } = req.body;
-    const authUser = (req as any).authUser;
-    if (authUser.role !== 'admin' && authUser.id !== userId) {
-      return res.status(403).json({ success: false, message: '无权限操作该通知' });
+    try {
+      const { userId } = req.body || {};
+      const authUser = (req as any).authUser;
+      if (!userId || (authUser.role !== 'admin' && authUser.id !== userId)) {
+        return res.status(403).json({ success: false, message: '无权限操作该通知' });
+      }
+      db.prepare('UPDATE notifications SET isRead = 1 WHERE userId = ?').run(userId);
+      res.json({ success: true });
+    } catch (e) {
+      console.error('notifications/read error:', e);
+      res.status(500).json({ success: false, message: '操作失败' });
     }
-    db.prepare('UPDATE notifications SET isRead = 1 WHERE userId = ?').run(userId);
-    res.json({ success: true });
   });
 
   app.get('/api/users', authMiddleware, (req, res) => {
