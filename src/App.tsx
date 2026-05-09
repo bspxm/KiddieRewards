@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { UserProfile } from './types';
+import { getToken, clearToken } from './lib/api';
 
 // 组件
 import { Navbar } from './components/Layout/Navbar';
@@ -15,33 +16,57 @@ import { ParentView } from './components/Parent/ParentView';
 import { ChildView } from './components/Child/ChildView';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
-    const saved = localStorage.getItem('kiddie_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [initializing, setInitializing] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem('kiddie_theme') || 'default');
-  const [isChildMode, setIsChildMode] = useState(() => {
-    const savedMode = localStorage.getItem('kiddie_is_child_mode');
-    if (savedMode !== null) return savedMode === 'true';
-    return currentUser?.role === 'child';
-  });
+
+  // 页面加载时验证 token 有效性，实现自动登录
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      setInitializing(false);
+      return;
+    }
+    fetch('/api/me', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setCurrentUser(data.user);
+          localStorage.setItem('kiddie_user', JSON.stringify(data.user));
+        } else {
+          clearToken();
+          localStorage.removeItem('kiddie_user');
+        }
+      })
+      .catch(() => {
+        clearToken();
+        localStorage.removeItem('kiddie_user');
+      })
+      .finally(() => setInitializing(false));
+  }, []);
 
   const handleLogin = (user: UserProfile, token?: string) => {
     setCurrentUser(user);
     localStorage.setItem('kiddie_user', JSON.stringify(user));
     if (token) localStorage.setItem('kiddie_token', token);
-    if (user.role === 'child') {
-      setIsChildMode(true);
-    }
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    setIsChildMode(false);
     localStorage.removeItem('kiddie_user');
     localStorage.removeItem('kiddie_token');
     window.history.pushState({}, '', window.location.pathname);
   };
+
+  if (initializing) {
+    return (
+      <div className={`min-h-screen theme-transition flex items-center justify-center ${theme !== 'default' ? `theme-${theme}` : ''}`}>
+        <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return (
@@ -65,20 +90,25 @@ export default function App() {
             <SuperAdminView onLogout={handleLogout} />
           </div>
         </div>
+      ) : currentUser.role === 'child' ? (
+        <div className={`min-h-screen bg-gray-50/50 theme-transition ${theme !== 'default' ? `theme-${theme}` : ''}`}>
+          <Navbar 
+            user={currentUser} 
+            onLogout={handleLogout} 
+            onSetTheme={setTheme}
+            currentTheme={theme}
+          />
+          <ChildView user={currentUser} />
+        </div>
       ) : (
         <div className={`min-h-screen bg-gray-50/50 theme-transition ${theme !== 'default' ? `theme-${theme}` : ''}`}>
           <Navbar 
             user={currentUser} 
             onLogout={handleLogout} 
-            isChildMode={isChildMode}
-            onSwitchMode={() => setIsChildMode(!isChildMode)}
             onSetTheme={setTheme}
             currentTheme={theme}
           />
-          {isChildMode
-            ? <ChildView user={currentUser} />
-            : <ParentView user={currentUser} onSwitchToChild={() => setIsChildMode(true)} onLogout={handleLogout} onSetTheme={setTheme} currentTheme={theme} />
-          }
+          <ParentView user={currentUser} onLogout={handleLogout} onSetTheme={setTheme} currentTheme={theme} />
         </div>
       )}
     </BrowserRouter>

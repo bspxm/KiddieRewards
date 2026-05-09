@@ -10,6 +10,7 @@ import { UserProfile } from '../../types';
 export const LoginView = ({ onLogin }: { onLogin: (u: UserProfile, token?: string) => void }) => {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
@@ -27,7 +28,7 @@ export const LoginView = ({ onLogin }: { onLogin: (u: UserProfile, token?: strin
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, password })
+        body: JSON.stringify({ name, password, rememberMe })
       });
       const data = await res.json();
       if (data.success) {
@@ -130,6 +131,16 @@ export const LoginView = ({ onLogin }: { onLogin: (u: UserProfile, token?: strin
                 {error}
               </motion.p>
             )}
+
+            <label className="flex items-center gap-2 cursor-pointer select-none justify-center">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-brand focus:ring-brand/20"
+              />
+              <span className="text-gray-500 text-xs font-bold">7天内自动登录</span>
+            </label>
 
             <button 
               type="submit"

@@ -395,7 +395,7 @@ async function startServer() {
   }
 
   app.post('/api/login', async (req, res) => {
-    const { name, password } = req.body;
+    const { name, password, rememberMe } = req.body;
     const ip = getClientIp(req);
     
     const clientKey = `${ip}:${name}`;
@@ -419,7 +419,7 @@ async function startServer() {
       const admin = db.prepare("SELECT * FROM users WHERE role = 'admin' AND name = 'admin'").get() as any;
       if (admin && await comparePassword(password, admin.password)) {
         recordSuccess(clientKey);
-        const token = signToken({ id: admin.id, name: admin.name, role: admin.role, familyId: admin.familyId, parentId: admin.parentId });
+        const token = signToken({ id: admin.id, name: admin.name, role: admin.role, familyId: admin.familyId, parentId: admin.parentId }, !!rememberMe);
         logAction({
           level: 'INFO',
           action: 'LOGIN_SUCCESS',
@@ -503,7 +503,7 @@ async function startServer() {
       db.prepare('UPDATE families SET lastActiveAt = ? WHERE id = ?').run(Date.now(), family.id);
     } catch(e) {}
 
-    const token = signToken({ id: user.id, name: user.name, role: user.role, familyId: user.familyId, parentId: user.parentId });
+    const token = signToken({ id: user.id, name: user.name, role: user.role, familyId: user.familyId, parentId: user.parentId }, !!rememberMe);
 
     logAction({
       level: 'INFO',
@@ -516,6 +516,101 @@ async function startServer() {
       ip
     });
     res.json({ success: true, token, user: { id: user.id, name: user.name, role: user.role, parentId: user.parentId, familyId: user.familyId } });
+  });
+
+  // 获取当前登录用户信息（用于页面加载时验证 token 有效性）
+  app.get('/api/me', authMiddleware, (req, res) => {
+    const authUser = (req as any).authUser;
+    res.json({ success: true, user: { id: authUser.id, name: authUser.name, role: authUser.role, parentId: authUser.parentId, familyId: authUser.familyId } });
+  });
+
+  // 自助删除账号（家长端：删除整个家庭及所有数据）
+  app.post('/api/account/delete', authMiddleware, async (req, res) => {
+    const authUser = (req as any).authUser;
+    if (authUser.role === 'child') {
+      return res.status(403).json({ success: false, message: '小朋友不能删除家庭账号' });
+    }
+    if (authUser.role === 'admin') {
+      return res.status(403).json({ success: false, message: '超级管理员请在管理面板操作' });
+    }
+
+    const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({ success: false, message: '请输入密码以确认删除' });
+    }
+
+    // 验证密码
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(authUser.id) as any;
+    if (!user || !(await comparePassword(password, user.password))) {
+      logAction({
+        level: 'SECURITY',
+        action: 'DELETE_ACCOUNT_FAILED',
+        userId: authUser.id,
+        familyId: authUser.familyId,
+        details: `Password verification failed for account deletion`,
+        success: false,
+        ip: getClientIp(req)
+      });
+      return res.status(401).json({ success: false, message: '密码错误，删除失败' });
+    }
+
+    const familyId = authUser.familyId;
+    try {
+      const trx = db.transaction(() => {
+        db.prepare('DELETE FROM reward_rules WHERE familyId = ?').run(familyId);
+        db.prepare('DELETE FROM rewards WHERE familyId = ?').run(familyId);
+        db.prepare('DELETE FROM task_submissions WHERE familyId = ?').run(familyId);
+        db.prepare('DELETE FROM redemption_records WHERE familyId = ?').run(familyId);
+
+        const users = db.prepare('SELECT id FROM users WHERE familyId = ?').all(familyId) as { id: string }[];
+        const userIds = users.map(u => u.id);
+
+        if (userIds.length > 0) {
+          const placeholders = userIds.map(() => '?').join(',');
+          try {
+            db.prepare(`DELETE FROM point_history WHERE childId IN (${placeholders})`).run(...userIds);
+            db.prepare(`DELETE FROM notifications WHERE userId IN (${placeholders})`).run(...userIds);
+            db.prepare(`DELETE FROM reward_rules WHERE parentId IN (${placeholders})`).run(...userIds);
+            db.prepare(`DELETE FROM rewards WHERE parentId IN (${placeholders})`).run(...userIds);
+            db.prepare(`DELETE FROM task_submissions WHERE childId IN (${placeholders}) OR parentId IN (${placeholders})`).run(...userIds, ...userIds);
+            db.prepare(`DELETE FROM redemption_records WHERE childId IN (${placeholders}) OR parentId IN (${placeholders})`).run(...userIds, ...userIds);
+          } catch(e) {}
+        }
+
+        db.prepare('DELETE FROM users WHERE familyId = ?').run(familyId);
+        db.prepare('DELETE FROM families WHERE id = ?').run(familyId);
+      });
+
+      trx();
+
+      // 将当前 token 加入黑名单
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        tokenBlacklist.add(authHeader.substring(7));
+      }
+
+      logAction({
+        level: 'SECURITY',
+        action: 'DELETE_ACCOUNT',
+        userId: authUser.id,
+        familyId,
+        details: `User ${authUser.name} deleted their own account and family data`,
+        success: true,
+        ip: getClientIp(req)
+      });
+      res.json({ success: true });
+    } catch (e) {
+      logAction({
+        level: 'ERROR',
+        action: 'DELETE_ACCOUNT',
+        userId: authUser.id,
+        familyId,
+        details: `Error deleting account: ${(e as Error).message}`,
+        success: false,
+        ip: getClientIp(req)
+      });
+      res.status(500).json({ success: false, message: '删除失败，请稍后重试' });
+    }
   });
 
   // Admin: 修改密码

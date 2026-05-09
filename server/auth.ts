@@ -26,13 +26,13 @@ const JWT_EXPIRES_IN = '24h';
 const BCRYPT_ROUNDS = 10;
 
 // MED-05: JWT 仅存 session_id，用户信息通过 session_id 查库获取（减少信息暴露）
-const sessionStore = new Map<string, { id: string; name: string; role: string; familyId?: string; parentId?: string; createdAt: number }>();
-const SESSION_TTL = 24 * 60 * 60 * 1000; // 24h
+const sessionStore = new Map<string, { id: string; name: string; role: string; familyId?: string; parentId?: string; createdAt: number; ttl: number }>();
+const SESSION_TTL = 24 * 60 * 60 * 1000; // 24h（默认，勾选"7天内自动登录"会覆盖）
 
 function cleanupSessions() {
   const now = Date.now();
   for (const [sid, sess] of sessionStore) {
-    if (now - sess.createdAt > SESSION_TTL) {
+    if (now - sess.createdAt > sess.ttl) {
       sessionStore.delete(sid);
     }
   }
@@ -40,10 +40,11 @@ function cleanupSessions() {
 // 每 30 分钟清理过期 session
 setInterval(cleanupSessions, 30 * 60 * 1000);
 
-export function signToken(payload: { id: string; name: string; role: string; familyId?: string; parentId?: string }): string {
+export function signToken(payload: { id: string; name: string; role: string; familyId?: string; parentId?: string }, rememberMe = false): string {
   const sessionId = crypto.randomBytes(16).toString('hex');
-  sessionStore.set(sessionId, { ...payload, createdAt: Date.now() });
-  return jwt.sign({ sid: sessionId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN, noTimestamp: false });
+  const ttl = rememberMe ? 7 * 24 * 60 * 60 * 1000 : SESSION_TTL;
+  sessionStore.set(sessionId, { ...payload, createdAt: Date.now(), ttl });
+  return jwt.sign({ sid: sessionId }, JWT_SECRET, { expiresIn: rememberMe ? '7d' : JWT_EXPIRES_IN, noTimestamp: false });
 }
 
 export function verifyToken(token: string): jwt.JwtPayload & { id: string; name: string; role: string; familyId?: string; parentId?: string } {
@@ -52,7 +53,7 @@ export function verifyToken(token: string): jwt.JwtPayload & { id: string; name:
   // 新式：通过 session_id 查找
   if (decoded.sid) {
     const sess = sessionStore.get(decoded.sid);
-    if (!sess || Date.now() - sess.createdAt > SESSION_TTL) {
+    if (!sess || Date.now() - sess.createdAt > sess.ttl) {
       throw new Error('Session expired');
     }
     return { ...sess, iat: decoded.iat, exp: decoded.exp };

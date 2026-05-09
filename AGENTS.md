@@ -36,7 +36,7 @@ The server auto-creates the `data/` directory on startup. Database tables are cr
 
 - Login accepts `name@family` format (e.g. `小乐@乐家`) or `admin` for super-admin
 - **Session-based JWT**: JWT tokens contain only a `session_id`; user info (id, name, role, familyId, parentId) is stored in an in-memory `sessionStore`. Legacy tokens with embedded user data are still supported for backward compatibility.
-- Sessions auto-expire after 24h; a cleanup timer runs every 30 minutes.
+- Sessions auto-expire after **24h** (default), or **7 days** if user checks "7天内自动登录" on login; a cleanup timer runs every 30 minutes.
 - Tokens stored in `localStorage` as `kiddie_token`; user profile stored as `kiddie_user`.
 - All `/api/*` routes (except `/api/login`, `/api/register/family`) require `Bearer <token>`
 - **Token blacklist** (`tokenBlacklist` Set): `POST /api/logout` adds the token to the blacklist. The middleware checks this before verifying.
@@ -121,7 +121,10 @@ Logs are **JSONL files**, not database rows. Structured as `logs/<year>/<month>/
 
 11. **`initDefaults()` is async but called without await in the sense that `startServer()` awaits it** — password hashing happens before the Express app starts. The `initDefaults` function upgrades old plaintext passwords to bcrypt.
 
-12. **Session store is in-memory only** — sessions are lost on server restart. The JWT itself expires in 24h, and the session TTL is also 24h.
+12. **Session store is in-memory only** — sessions are lost on server restart. The JWT itself expires in **7 days**, and the session TTL is also **7 days**.
+
+17. **Auto-login (7-day remember)**: Login page has "7天内自动登录" checkbox (default checked). When checked, the backend issues a 7-day token; otherwise the original 24h token is used. On page load, `App.tsx` calls `GET /api/me` to verify the stored token is still valid. If valid, the user is automatically logged in. If expired, the login screen is shown.
+18. **Self-service account deletion**: Parent users can delete their entire family (all data) via `POST /api/account/delete` with password confirmation. The endpoint is protected (parent role only, not child/admin), requires password verification, blacklists the current token on success, and logs the action. The UI is in the family_manage tab under a "危险区域" section.
 
 13. **Family deletion cascades manually** — there are no foreign key constraints. The admin delete endpoint manually deletes from reward_rules, rewards, task_submissions, redemption_records, point_history, notifications, users, then families.
 

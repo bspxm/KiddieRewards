@@ -14,11 +14,9 @@ import { UserProfile, AppNotification } from '../../types';
 import { requestNotificationPermission } from '../../lib/notificationHelper';
 import { authFetch } from '../../lib/api';
 
-export const Navbar = ({ user, onLogout, isChildMode, onSwitchMode, onSetTheme, currentTheme }: { 
+export const Navbar = ({ user, onLogout, onSetTheme, currentTheme }: { 
   user: UserProfile | null, 
   onLogout: () => void,
-  isChildMode?: boolean,
-  onSwitchMode?: () => void,
   onSetTheme?: (theme: string) => void,
   currentTheme?: string
 }) => {
@@ -79,15 +77,6 @@ export const Navbar = ({ user, onLogout, isChildMode, onSwitchMode, onSetTheme, 
       </div>
 
       <div className="flex items-center gap-4 sm:gap-6">
-        {onSwitchMode && user?.role === 'parent' && isChildMode && (
-          <button 
-            onClick={onSwitchMode}
-            className="flex items-center gap-2 px-4 py-2 rounded-full font-bold text-xs transition-all bg-secondary-light text-secondary-hover hover:opacity-80"
-          >
-            <Settings size={14} />
-            <span className="hidden xs:inline">返回管理模式</span>
-          </button>
-        )}
         <div className="relative">
           <button 
             onClick={() => { setShowThemeSelector(!showThemeSelector); setShowNotif(false); }}
@@ -128,8 +117,7 @@ export const Navbar = ({ user, onLogout, isChildMode, onSwitchMode, onSetTheme, 
           </AnimatePresence>
         </div>
 
-        {!isChildMode && (
-          <div className="relative">
+        <div className="relative">
             <button 
               onClick={openNotifCenter}
               className="p-2 text-gray-400 hover:text-brand hover:bg-brand-light rounded-full transition-colors relative"
@@ -142,7 +130,6 @@ export const Navbar = ({ user, onLogout, isChildMode, onSwitchMode, onSetTheme, 
               )}
             </button>
           </div>
-        )}
 
         <div className="flex items-center gap-3 bg-gray-50 py-1.5 pl-1.5 pr-4 rounded-full border border-gray-100">
           <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-brand shadow-sm font-bold overflow-hidden text-sm">
@@ -151,7 +138,7 @@ export const Navbar = ({ user, onLogout, isChildMode, onSwitchMode, onSetTheme, 
           <div className="hidden md:block">
             <p className="text-sm font-black text-gray-800 leading-none">{user?.name}</p>
             <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-1">
-              {isChildMode ? '孩子领地' : (user?.role === 'admin' ? '总管端' : '家长端')}
+              {user?.role === 'admin' ? '总管端' : '家长端'}
             </p>
           </div>
           <button onClick={onLogout} className="text-gray-400 hover:text-red-500 ml-1 transition-colors">

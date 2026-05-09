@@ -30,6 +30,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { DashboardBanner } from './DashboardBanner';
 import { 
   LineChart, 
   Line, 
@@ -51,9 +52,8 @@ import { CustomSelect } from '../ui/CustomSelect';
 import { useTabState } from '../../hooks/useTabState';
 import { authFetch } from '../../lib/api';
 
-export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, currentTheme }: { 
+export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: { 
   user: UserProfile,
-  onSwitchToChild: () => void,
   onLogout: () => void,
   onSetTheme: (theme: string) => void,
   currentTheme: string
@@ -85,6 +85,10 @@ export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, curren
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [changedPassword, setChangedPassword] = useState('');
   const [memberToDelete, setMemberToDelete] = useState<UserProfile | null>(null);
+
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   
   const [profileName, setProfileName] = useState(user.name);
   const [profilePassword, setProfilePassword] = useState('');
@@ -288,6 +292,31 @@ export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, curren
     } catch (e) {
       console.error("Delete Member Error:", e);
       alert(e instanceof Error ? e.message : '删除失败，请稍后重试');
+    }
+  };
+
+  const executeDeleteAccount = async () => {
+    if (!deletePassword) return;
+    setIsDeletingAccount(true);
+    try {
+      const res = await authFetch('/api/account/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: deletePassword })
+      });
+      const data = await res.json();
+      if (data.success) {
+        onLogout();
+      } else {
+        alert(data.message || '删除失败');
+      }
+    } catch (e) {
+      console.error("Delete Account Error:", e);
+      alert('删除失败，请稍后重试');
+    } finally {
+      setIsDeletingAccount(false);
+      setShowDeleteAccount(false);
+      setDeletePassword('');
     }
   };
 
@@ -576,17 +605,6 @@ export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, curren
           </div>
 
 
-          <div className="pt-6 border-t border-gray-50">
-            <h2 className="text-[10px] font-bold uppercase tracking-[2px] text-gray-400 mb-4 px-2">视图预览</h2>
-            <button 
-              onClick={onSwitchToChild}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-secondary hover:bg-secondary-light transition-all font-bold text-sm group"
-            >
-              <Smile size={18} className="group-hover:scale-110 transition-transform" />
-              进入儿童端预览
-            </button>
-          </div>
-          
           <div className="pt-4 mt-2">
             <button 
               onClick={onLogout}
@@ -604,81 +622,9 @@ export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, curren
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-6">
-              <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
-                <div className="min-w-0">
-                  <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tighter truncate">你好, {user.name} 👋</h1>
-                  <p className="text-sm sm:text-base text-gray-500 mt-2 font-medium">今天也请多多鼓励孩子们吧！</p>
-                </div>
-              </header>
+              <DashboardBanner user={user} children={children} onNavigate={setActiveTab} />
 
-              <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* 0. 星币排行榜 - 快速概览 */}
-                <div className="bg-gradient-to-br from-brand to-brand-hover rounded-3xl p-8 shadow-xl shadow-brand-light flex flex-col md:col-span-2 text-white overflow-hidden relative">
-                   <div className="relative z-10">
-                      <div className="flex items-center justify-between mb-8">
-                         <h3 className="font-black text-2xl tracking-tighter flex items-center gap-2">
-                           <Star size={24} className="text-yellow-300 animate-pulse" />
-                           {children.length > 1 ? '星币财富榜' : '本月星币概况'}
-                         </h3>
-                         <div className="bg-white/20 backdrop-blur-md px-4 py-1 rounded-full text-xs font-bold">
-                           {children.length > 1 ? `全家总计: ${children.reduce((acc, c) => acc + (c.points || 0), 0)} 星币` : '实时星币存款'}
-                         </div>
-                      </div>
-                      
-                      {children.length === 1 ? (
-                        <div className="flex flex-col sm:flex-row items-center gap-8 py-4">
-                           <div className="relative">
-                              <div className="w-24 h-24 bg-white/20 rounded-[2rem] flex items-center justify-center text-5xl">
-                                 ✨
-                              </div>
-                              <motion.div 
-                                animate={{ rotate: 360 }} 
-                                transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
-                                className="absolute inset-[-8px] border-2 border-dashed border-white/20 rounded-[2.5rem]"
-                              />
-                           </div>
-                           <div className="text-center sm:text-left">
-                              <h4 className="text-4xl font-black mb-2">{children[0].name}</h4>
-                              <div className="flex items-center justify-center sm:justify-start gap-3">
-                                 <div className="bg-white text-brand px-6 py-2 rounded-2xl text-2xl font-black shadow-xl">
-                                   {children[0].points || 0} <span className="text-sm">星币</span>
-                                 </div>
-                                 <p className="text-sm font-medium opacity-80 max-w-[200px]">继续加油，解锁更多心愿吧！</p>
-                              </div>
-                           </div>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                           {children.sort((a, b) => (b.points || 0) - (a.points || 0)).map((c, idx) => (
-                             <div key={c.id} className="bg-white/10 backdrop-blur-sm rounded-[2rem] p-5 border border-white/10 flex flex-col items-center text-center group hover:bg-white/20 transition-all">
-                                <div className="relative mb-3">
-                                  <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-3xl">
-                                     {idx === 0 ? '👑' : (idx === 1 ? '🥈' : (idx === 2 ? '🥉' : '✨'))}
-                                  </div>
-                                  {idx === 0 && (
-                                    <motion.div 
-                                      animate={{ rotate: 360 }} 
-                                      transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
-                                      className="absolute inset-[-4px] border-2 border-dashed border-yellow-300 rounded-[1.25rem] opacity-50"
-                                    />
-                                  )}
-                                </div>
-                                <p className="font-black text-lg mb-1 truncate w-full px-2">{c.name}</p>
-                                <div className="bg-white text-brand px-3 py-1 rounded-xl text-sm font-black shadow-lg">
-                                  {c.points || 0}
-                                </div>
-                             </div>
-                           ))}
-                           {children.length === 0 && (
-                             <p className="col-span-full py-8 text-white/50 font-bold italic text-center">暂无家庭成员</p>
-                           )}
-                        </div>
-                      )}
-                   </div>
-                    {/* 装饰性背景圆 */}
-                   <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-white/5 rounded-full blur-3xl" />
-                   <div className="absolute -top-10 -left-10 w-40 h-40 bg-white/10 rounded-full blur-2xl" />
-                </div>
+              <section className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
 
                 {/* 1. 直接加分 */}
                 <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm flex flex-col">
@@ -948,6 +894,24 @@ export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, curren
                         )}
                       </div>
                     ))}
+                  </div>
+               </section>
+
+               {/* 危险区域：删除账号 */}
+               <section className="bg-white rounded-[2.5rem] border border-red-100 p-8 shadow-sm">
+                  <h2 className="text-xs font-black text-red-400 uppercase tracking-widest mb-8 flex items-center gap-2">
+                    <ShieldAlert size={14} />
+                    危险区域
+                  </h2>
+                  <div className="text-center sm:text-left">
+                    <p className="text-gray-900 font-bold text-lg mb-2">删除整个家庭账号</p>
+                    <p className="text-gray-500 text-sm font-medium mb-6">删除后将无法恢复，所有家庭成员、规则、积分和兑换记录将被永久清除。</p>
+                    <button 
+                      onClick={() => setShowDeleteAccount(true)}
+                      className="px-8 py-4 bg-red-500 text-white rounded-2xl font-black shadow-lg hover:bg-red-600 transition-all active:scale-95"
+                    >
+                      删除账号和数据
+                    </button>
                   </div>
                </section>
             </motion.div>
@@ -1612,6 +1576,43 @@ export const ParentView = ({ user, onSwitchToChild, onLogout, onSetTheme, curren
               <div className="grid grid-cols-2 gap-4">
                 <button onClick={() => setMemberToDelete(null)} className="py-4 font-bold text-gray-400">取消</button>
                 <button onClick={executeDeleteMember} className="py-4 bg-red-500 text-white rounded-2xl font-black shadow-lg">确认删除</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showDeleteAccount && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowDeleteAccount(false); setDeletePassword(''); }} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full relative z-10 shadow-2xl text-center">
+              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <ShieldAlert size={40} />
+              </div>
+              <h2 className="text-2xl font-black mb-2 text-gray-900">确定要删除吗？</h2>
+              <p className="text-gray-500 mb-6 font-medium">此操作不可恢复，所有家庭成员、规则、积分和兑换记录将被永久清除。</p>
+              <input 
+                type="password"
+                placeholder="输入管理密码确认"
+                className="w-full bg-gray-50 border-none rounded-2xl p-4 font-bold text-gray-900 outline-none focus:ring-2 focus:ring-red-400 transition-all mb-6"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => { setShowDeleteAccount(false); setDeletePassword(''); }} 
+                  className="py-4 font-bold text-gray-400"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={executeDeleteAccount}
+                  disabled={!deletePassword || isDeletingAccount}
+                  className="py-4 bg-red-500 text-white rounded-2xl font-black shadow-lg disabled:opacity-50"
+                >
+                  {isDeletingAccount ? '删除中...' : '确认删除'}
+                </button>
               </div>
             </motion.div>
           </div>
