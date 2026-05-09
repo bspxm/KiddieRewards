@@ -21,6 +21,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTabState } from '../../hooks/useTabState';
 import { authFetch } from '../../lib/api';
+import { version as appVersion } from '../../../package.json';
 
 export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
   const [families, setFamilies] = useState<any[]>([]);
@@ -571,6 +572,9 @@ export const SuperAdminView = ({ onLogout }: { onLogout: () => void }) => {
                   确认修改
                 </button>
               </form>
+            </div>
+            <div className="mt-8 text-center text-xs text-gray-500 font-bold bg-gray-50 py-3 px-6 rounded-2xl border border-gray-100 inline-block mx-auto">
+              KiddieRewards v{appVersion}
             </div>
           </div>
         )}

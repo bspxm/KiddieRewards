@@ -213,7 +213,11 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
 
   const addMember = async () => {
     if (!newChildName.trim()) return;
-    await authFetch('/api/users/add-member', {
+    if (!newChildPassword || newChildPassword.length < 6) {
+      alert('密码至少需要6位');
+      return;
+    }
+    const res = await authFetch('/api/users/add-member', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
@@ -223,6 +227,11 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
         role: newMemberRole
       })
     });
+    const data = await res.json();
+    if (!data.success) {
+      alert(data.message || '添加失败');
+      return;
+    }
     setNewChildName('');
     setNewChildPassword('');
     setNewMemberRole('child');
@@ -635,7 +644,29 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
                       </h3>
                       <button onClick={() => setActiveTab('rules')} className="text-xs text-brand font-bold hover:underline">管理规则</button>
                    </div>
-                   <div className="space-y-3 flex-1 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
+                   {children.length > 1 && (
+                     <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar">
+                       {children.map(c => (
+                         <button
+                           key={c.id}
+                           onClick={() => setSelectedChildId(c.id)}
+                            className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shrink-0 leading-none ${
+                              selectedChildId === c.id
+                                ? 'bg-secondary-light text-secondary border-2 border-secondary shadow-sm'
+                                : 'bg-gray-50 text-gray-400 border-2 border-transparent hover:bg-gray-100'
+                            }`}
+                         >
+                           <Smile size={16} />
+                           {c.name}
+                           <span className="text-[10px] opacity-60">✨{c.points || 0}</span>
+                         </button>
+                       ))}
+                     </div>
+                   )}
+                   {child && (
+                     <p className="text-xs font-bold text-gray-400 mb-3">正在为 <span className="text-secondary">{child.name}</span> 加分：</p>
+                   )}
+                   <div className="space-y-3 flex-1 overflow-y-auto max-h-[270px] pr-2 custom-scrollbar">
                       {rules.filter(r => r.isRepeating).slice(0, 4).length === 0 ? (
                         <div className="py-10 text-center opacity-40">
                            <Zap size={40} className="mx-auto mb-2 text-gray-300" />
@@ -1147,7 +1178,8 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
                </div>
 
                <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="overflow-x-auto">
+                  {/* 桌面端表格视图 */}
+                  <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-gray-50/50 border-b border-gray-50">
@@ -1214,7 +1246,7 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={6} className="px-6 py-12 text-center text-gray-400 font-bold italic text-sm">
+                            <td colSpan={children.length > 1 ? 7 : 6} className="px-6 py-12 text-center text-gray-400 font-bold italic text-sm">
                               暂无足迹记录
                             </td>
                           </tr>
@@ -1223,22 +1255,89 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
                     </table>
                   </div>
 
+                  {/* 移动端卡片视图 */}
+                  <div className="md:hidden divide-y divide-gray-100">
+                    {growthHistory.length > 0 ? (
+                      growthHistory.map((item) => (
+                        <div key={item.id} className={`p-5 space-y-3 ${item.status === 'rejected' ? 'opacity-60' : ''}`}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded tracking-wider whitespace-nowrap ${
+                                item.type === 'task' ? 'bg-brand-light text-brand' : 'bg-secondary-light text-secondary'
+                              }`}>
+                                {item.type === 'task' ? '获得奖励' : '兑换星愿'}
+                              </span>
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded whitespace-nowrap ${
+                                item.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                              }`}>
+                                {item.status === 'approved' ? '已通过' : '被拒绝'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-mono text-gray-400">
+                                {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              {item.status === 'approved' ? (
+                                <CheckCircle size={14} className="text-green-400" />
+                              ) : (
+                                <X size={14} className="text-red-400" />
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <h4 className="text-base font-black text-gray-900 leading-tight mb-0.5">{item.title}</h4>
+                            <div className="flex items-center justify-between">
+                              <span className={`text-sm font-black ${
+                                item.status === 'rejected' ? 'text-gray-400' : (item.points > 0 ? 'text-brand' : 'text-secondary')
+                              }`}>
+                                {item.status === 'rejected' ? '0' : (item.points > 0 ? `+${item.points}` : item.points)} 星币
+                              </span>
+                              {children.length > 1 && (
+                                <span className="text-[10px] font-black text-gray-500 bg-gray-50 px-2 py-0.5 rounded-md">
+                                  {children.find(c => c.id === item.childId)?.name || '未知'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+                            <span className="text-[10px] font-mono text-gray-400">
+                              {new Date(item.timestamp).toLocaleDateString()}
+                            </span>
+                            <button
+                              onClick={() => deleteHistoryItem(item)}
+                              className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 size={14} />
+                              删除
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="py-16 text-center text-gray-400 font-bold italic text-sm">暂无足迹记录</div>
+                    )}
+                  </div>
+
                   {growthTotal > growthLimit && (
-                    <div className="p-6 border-t border-gray-50 flex items-center justify-between">
+                    <div className="bg-gray-50/50 px-6 py-4 flex items-center justify-between border-t border-gray-100">
                        <p className="text-xs font-bold text-gray-400">共 {growthTotal} 条记录</p>
                        <div className="flex items-center gap-2">
                           <button 
                             disabled={growthPage === 1}
                             onClick={() => setGrowthPage(p => Math.max(1, p - 1))}
-                            className="w-10 h-10 rounded-xl border border-gray-100 flex items-center justify-center text-gray-400 disabled:opacity-30 hover:bg-gray-50 transition-all font-black text-sm"
+                            className="w-10 h-10 rounded-xl border border-gray-100 bg-white flex items-center justify-center text-gray-400 disabled:opacity-30 hover:text-brand transition-all font-black text-sm"
                           >
-                             <Calendar size={18} className="rotate-90" /> {/* 用作左箭头代理 */}
+                             <Calendar size={18} className="rotate-90" />
                           </button>
-                          <span className="text-sm font-black px-4">{growthPage}</span>
+                          <div className="flex items-center px-4 bg-white border border-gray-100 rounded-xl h-10">
+                            <span className="text-xs font-black text-gray-900">{growthPage}</span>
+                          </div>
                           <button 
                             disabled={growthPage * growthLimit >= growthTotal}
                             onClick={() => setGrowthPage(p => p + 1)}
-                            className="w-10 h-10 rounded-xl border border-gray-100 flex items-center justify-center text-gray-400 disabled:opacity-30 hover:bg-gray-50 transition-all font-black text-sm"
+                            className="w-10 h-10 rounded-xl border border-gray-100 bg-white flex items-center justify-center text-gray-400 disabled:opacity-30 hover:text-brand transition-all font-black text-sm"
                           >
                              <ChevronRight size={18} />
                           </button>
@@ -1538,6 +1637,17 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
                 <div>
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">成员名称</label>
                   <input type="text" className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" placeholder="例如：乐妈" value={newChildName} onChange={(e) => setNewChildName(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">角色</label>
+                  <div className="flex gap-2">
+                    <button onClick={() => setNewMemberRole('parent')} className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${newMemberRole === 'parent' ? 'bg-brand-light text-brand ring-2 ring-brand' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>家长</button>
+                    <button onClick={() => setNewMemberRole('child')} className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${newMemberRole === 'child' ? 'bg-secondary-light text-secondary ring-2 ring-secondary' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>小朋友</button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">密码</label>
+                  <input type="password" className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" placeholder="至少6位密码" value={newChildPassword} onChange={(e) => setNewChildPassword(e.target.value)} />
                 </div>
                 <button onClick={addMember} className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4">确认添加成员</button>
               </div>

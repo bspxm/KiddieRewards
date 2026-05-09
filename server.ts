@@ -223,21 +223,26 @@ async function initDefaults() {
         const famId = 'fam_le';
         db.prepare('INSERT INTO families (id, name, createdAt, lastActiveAt) VALUES (?, ?, ?, ?)').run(famId, '乐家', Date.now(), Date.now());
 
-        db.prepare('DELETE FROM users WHERE name = ? AND familyId = ?').run('乐爸/乐妈', famId);
+        db.prepare('DELETE FROM users WHERE name = ? AND familyId = ?').run('乐爸', famId);
+        db.prepare('DELETE FROM users WHERE name = ? AND familyId = ?').run('乐妈', famId);
         db.prepare('DELETE FROM users WHERE name = ? AND familyId = ?').run('小乐', famId);
 
-        const pId = 'demo-p-001';
-        db.prepare('INSERT OR REPLACE INTO users (id, name, role, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?)').run(pId, '乐爸/乐妈', 'parent', 0, defaultPwdHash, famId);
-        db.prepare('INSERT OR REPLACE INTO users (id, name, role, parentId, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?, ?)').run('demo-c-001', '小乐', 'child', pId, 100, defaultPwdHash, famId);
+        const pId1 = 'demo-p-001';
+        const pId2 = 'demo-p-002';
+        db.prepare('INSERT OR REPLACE INTO users (id, name, role, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?)').run(pId1, '乐爸', 'parent', 0, defaultPwdHash, famId);
+        db.prepare('INSERT OR REPLACE INTO users (id, name, role, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?)').run(pId2, '乐妈', 'parent', 0, defaultPwdHash, famId);
+        db.prepare('INSERT OR REPLACE INTO users (id, name, role, parentId, points, password, familyId) VALUES (?, ?, ?, ?, ?, ?, ?)').run('demo-c-001', '小乐', 'child', pId1, 100, defaultPwdHash, famId);
 
         // 初始规则/奖励
-        db.prepare('DELETE FROM reward_rules WHERE parentId = ?').run(pId);
-        db.prepare('INSERT OR IGNORE INTO reward_rules (id, parentId, title, points, icon) VALUES (?, ?, ?, ?, ?)').run('r1', pId, '按时完成作业', 10, 'Book');
-        db.prepare('INSERT OR IGNORE INTO reward_rules (id, parentId, title, points, icon) VALUES (?, ?, ?, ?, ?)').run('r2', pId, '自己整理房间', 5, 'Home');
+        db.prepare('DELETE FROM reward_rules WHERE parentId = ?').run(pId1);
+        db.prepare('DELETE FROM reward_rules WHERE parentId = ?').run(pId2);
+        db.prepare('INSERT OR IGNORE INTO reward_rules (id, parentId, title, points, icon) VALUES (?, ?, ?, ?, ?)').run('r1', pId1, '按时完成作业', 10, 'Book');
+        db.prepare('INSERT OR IGNORE INTO reward_rules (id, parentId, title, points, icon) VALUES (?, ?, ?, ?, ?)').run('r2', pId1, '自己整理房间', 5, 'Home');
 
-        db.prepare('DELETE FROM rewards WHERE parentId = ?').run(pId);
-        db.prepare('INSERT OR IGNORE INTO rewards (id, parentId, title, pointsRequired) VALUES (?, ?, ?, ?)').run('rew1', pId, '额外的30分钟游戏时间', 50);
-        db.prepare('INSERT OR IGNORE INTO rewards (id, parentId, title, pointsRequired) VALUES (?, ?, ?, ?)').run('rew2', pId, '周末去游乐场', 200);
+        db.prepare('DELETE FROM rewards WHERE parentId = ?').run(pId1);
+        db.prepare('DELETE FROM rewards WHERE parentId = ?').run(pId2);
+        db.prepare('INSERT OR IGNORE INTO rewards (id, parentId, title, pointsRequired) VALUES (?, ?, ?, ?)').run('rew1', pId1, '额外的30分钟游戏时间', 50);
+        db.prepare('INSERT OR IGNORE INTO rewards (id, parentId, title, pointsRequired) VALUES (?, ?, ?, ?)').run('rew2', pId1, '周末去游乐场', 200);
 
         db.prepare('INSERT INTO server_meta (key, value) VALUES (?, ?)').run('seeded', 'true');
       }
