@@ -1,7 +1,10 @@
 node_modules/
+.agent
 dist/
 .env*
 .git
 .gitignore
 *.md
 kiddie_rewards.db*
+.claude/
+.superpowers/

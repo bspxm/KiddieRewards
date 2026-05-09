@@ -1,0 +1,96 @@
+<h2>当前Banner布局 — 问题诊断</h2>
+<p class="subtitle">以下是家长端首页当前的两个"banner"区域，请指出哪个问题最严重</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">区域A: 欢迎头部 (624-629行)</div>
+    <div class="mockup-body">
+      <div style="padding:16px;font-family:sans-serif;max-width:500px;margin:0 auto;">
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:32px;">
+          <div style="overflow:hidden">
+            <div style="font-size:30px;font-weight:900;color:#111;letter-spacing:-0.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">你好, 小乐爸爸 👋</div>
+            <div style="font-size:14px;color:#6b7280;margin-top:8px;font-weight:500;">今天也请多多鼓励孩子们吧！</div>
+          </div>
+        </div>
+        <div style="border:2px dashed #f59e0b; background:#fffbeb; padding:12px; border-radius:12px; margin-top:8px;">
+          <p style="margin:0;font-size:13px;font-weight:600;color:#d97706;margin-bottom:4px;">⚠ 问题：</p>
+          <ul style="margin:0;font-size:12px;color:#92400e;padding-left:16px;">
+            <li>标题文字超长时会truncate，但无视觉处理</li>
+            <li>PC端单行留白过多，信息密度太低</li>
+            <li>缺少视觉元素，太朴素</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">区域B: 星币排行榜卡片 (631-696行)</div>
+    <div class="mockup-body">
+      <div style="padding:16px;font-family:sans-serif;">
+        <!-- Simulated gradient card -->
+        <div style="background:linear-gradient(135deg, #4f46e5, #4338ca); border-radius:24px; padding:24px; color:white; max-width:500px;margin:0 auto; position:relative; overflow:hidden;">
+          <div style="position:relative;z-index:1;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:24px;">
+              <div style="font-weight:900;font-size:20px;display:flex;align-items:center;gap:8px;">⭐ 财富榜</div>
+            </div>
+            <!-- Multi-child grid -->
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+              <div style="background:rgba(255,255,255,0.1);border-radius:16px;padding:12px;text-align:center;border:1px solid rgba(255,255,255,0.1);">
+                <div style="font-size:28px;margin-bottom:4px;">👑</div>
+                <div style="font-weight:900;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">乐乐</div>
+                <div style="background:white;color:#4f46e5;border-radius:8px;padding:2px 8px;font-weight:900;font-size:12px;margin-top:4px;display:inline-block;">120</div>
+              </div>
+              <div style="background:rgba(255,255,255,0.1);border-radius:16px;padding:12px;text-align:center;border:1px solid rgba(255,255,255,0.1);">
+                <div style="font-size:28px;margin-bottom:4px;">🥈</div>
+                <div style="font-weight:900;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">欢欢</div>
+                <div style="background:white;color:#4f46e5;border-radius:8px;padding:2px 8px;font-weight:900;font-size:12px;margin-top:4px;display:inline-block;">85</div>
+              </div>
+              <div style="background:rgba(255,255,255,0.1);border-radius:16px;padding:12px;text-align:center;border:1px solid rgba(255,255,255,0.1);">
+                <div style="font-size:28px;margin-bottom:4px;">🥉</div>
+                <div style="font-weight:900;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">小明</div>
+                <div style="background:white;color:#4f46e5;border-radius:8px;padding:2px 8px;font-weight:900;font-size:12px;margin-top:4px;display:inline-block;">62</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="border:2px dashed #f59e0b; background:#fffbeb; padding:12px; border-radius:12px; margin-top:12px;">
+          <p style="margin:0;font-size:13px;font-weight:600;color:#d97706;margin-bottom:4px;">⚠ 问题：</p>
+          <ul style="margin:0;font-size:12px;color:#92400e;padding-left:16px;">
+            <li>单子模式下，头像+名字+积分挤在窄卡片里</li>
+            <li>多子模式网格在中小屏容易拥挤</li>
+            <li>整个卡片缺少童趣感和活泼元素</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>你觉得哪个区域问题最严重，需要优先重构？</h3>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="both" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>两个区域一起重构</h3>
+      <p>将欢迎头部和排行榜卡片融合成一个统一的现代Banner组件，整体解决</p>
+    </div>
+  </div>
+  <div class="option" data-choice="card" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>重点重构排行榜卡片</h3>
+      <p>欢迎头部保持简洁，主要解决卡片内部元素拥挤问题</p>
+    </div>
+  </div>
+  <div class="option" data-choice="header" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>重点重构欢迎头部</h3>
+      <p>在欢迎头部增加视觉元素和信息密度，卡片微调即可</p>
+    </div>
+  </div>
+</div>

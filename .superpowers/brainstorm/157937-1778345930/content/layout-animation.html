@@ -1,0 +1,140 @@
+<h2>信息架构 & 动画风格</h2>
+<p class="subtitle">炫彩活泼型Banner的布局拆解 + 动画选项</p>
+
+<div class="section">
+  <h3>Banner信息架构</h3>
+  <p>统一Banner卡片，从上到下分层：</p>
+  <div class="mockup" style="margin-bottom:24px;">
+    <div class="mockup-header">Banner布局示意 (单子模式)</div>
+    <div class="mockup-body">
+      <div style="font-family:sans-serif;max-width:700px;margin:0 auto;">
+        <div style="background:linear-gradient(135deg, #6366f1 0%, #8b5cf6 40%, #ec4899 100%); border-radius:24px; padding:0; color:white; overflow:hidden;">
+          <!-- Layer 1: Greeting row -->
+          <div style="padding:24px 28px 0 28px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <div>
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="font-size:32px;">👋</span>
+                  <div>
+                    <div style="font-size:24px;font-weight:900;letter-spacing:-0.5px;">你好, 小乐爸爸!</div>
+                    <div style="font-size:13px;opacity:0.75;margin-top:2px;font-weight:500;">今天也请多多鼓励孩子们吧 ✨</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Layer 2: Highlight stat -->
+          <div style="padding:20px 28px;">
+            <div style="display:flex;align-items:center;gap:16px;background:rgba(255,255,255,0.15);border-radius:20px;padding:16px 24px;backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.15);">
+              <div style="background:rgba(255,255,255,0.2);border-radius:16px;width:56px;height:56px;display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0;">🌟</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:12px;opacity:0.7;font-weight:600;margin-bottom:2px;">乐乐 · 本月星币</div>
+                <div style="font-size:36px;font-weight:900;line-height:1;">
+                  <span>120</span>
+                  <span style="font-size:14px;opacity:0.6;font-weight:600;margin-left:4px;">颗</span>
+                </div>
+              </div>
+              <div style="text-align:right;flex-shrink:0;">
+                <div style="font-size:11px;opacity:0.6;font-weight:600;">已完成任务</div>
+                <div style="font-size:20px;font-weight:900;opacity:0.8;">8</div>
+              </div>
+            </div>
+          </div>
+          <!-- Decorative wave bottom -->
+          <div style="height:24px;background:rgba(255,255,255,0.08);border-radius:50% 50% 0 0;margin-top:-8px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup" style="margin-bottom:16px;">
+    <div class="mockup-header">Banner布局示意 (多子模式 — 3个孩子以上)</div>
+    <div class="mockup-body">
+      <div style="font-family:sans-serif;max-width:700px;margin:0 auto;">
+        <div style="background:linear-gradient(135deg, #6366f1 0%, #8b5cf6 40%, #ec4899 100%); border-radius:24px; padding:0; color:white; overflow:hidden;">
+          <div style="padding:24px 28px 0 28px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:32px;">👋</span>
+              <div>
+                <div style="font-size:24px;font-weight:900;letter-spacing:-0.5px;">你好, 小乐爸爸!</div>
+                <div style="font-size:13px;opacity:0.75;margin-top:2px;font-weight:500;">今天也请多多鼓励孩子们吧 ✨</div>
+              </div>
+            </div>
+          </div>
+          <div style="padding:20px 28px;">
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+              <div style="background:rgba(255,255,255,0.15);border-radius:16px;padding:12px;text-align:center;border:1px solid rgba(255,255,255,0.12);">
+                <div style="font-size:28px;margin-bottom:4px;">👑</div>
+                <div style="font-weight:900;font-size:14px;">乐乐</div>
+                <div style="font-size:24px;font-weight:900;margin-top:2px;">120</div>
+                <div style="font-size:10px;opacity:0.6;">颗星币</div>
+              </div>
+              <div style="background:rgba(255,255,255,0.15);border-radius:16px;padding:12px;text-align:center;border:1px solid rgba(255,255,255,0.12);">
+                <div style="font-size:28px;margin-bottom:4px;">🥈</div>
+                <div style="font-weight:900;font-size:14px;">欢欢</div>
+                <div style="font-size:24px;font-weight:900;margin-top:2px;">85</div>
+                <div style="font-size:10px;opacity:0.6;">颗星币</div>
+              </div>
+              <div style="background:rgba(255,255,255,0.15);border-radius:16px;padding:12px;text-align:center;border:1px solid rgba(255,255,255,0.12);">
+                <div style="font-size:28px;margin-bottom:4px;">🥉</div>
+                <div style="font-weight:900;font-size:14px;">小明</div>
+                <div style="font-size:24px;font-weight:900;margin-top:2px;">62</div>
+                <div style="font-size:10px;opacity:0.6;">颗星币</div>
+              </div>
+            </div>
+          </div>
+          <div style="height:18px;background:rgba(255,255,255,0.08);border-radius:50% 50% 0 0;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>确认信息架构</h3>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="layout-yes" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>这个布局结构OK</h3>
+      <p>顶部问候 + 中间高亮数据卡片(单子)/孩子排行网格(多子)，底部波浪收尾。单子/多子自适应切换</p>
+    </div>
+  </div>
+  <div class="option" data-choice="layout-no" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>需要调整</h3>
+      <p>我想增减某些信息模块，或者调整层次顺序</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;">
+  <h3>入场动画风格偏好</h3>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="anim-stagger" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>分层渐显 (Staggered)</h3>
+      <p>问候语→子标题→数据卡片，逐个从下方淡入（间隔100-150ms），节奏轻快有序</p>
+    </div>
+  </div>
+  <div class="option" data-choice="anim-bounce" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>弹跳入场 (Bouncy)</h3>
+      <p>整个Banner卡片从上方弹入（spring动画），内部元素带轻微缩放弹性效果，更活泼</p>
+    </div>
+  </div>
+  <div class="option" data-choice="anim-slide" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>滑入+粒子</h3>
+      <p>卡片从右侧滑入，星星/sparkle粒子从卡片背后飘出。适合炫彩活泼风格</p>
+    </div>
+  </div>
+</div>
