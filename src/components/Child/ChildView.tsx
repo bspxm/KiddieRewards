@@ -27,6 +27,7 @@ import {
 import { requestNotificationPermission, sendBrowserNotification } from '../../lib/notificationHelper';
 import { useTabState } from '../../hooks/useTabState';
 import { authFetch } from '../../lib/api';
+import { useAnimatedNumber } from '../../hooks/useAnimatedNumber';
 
 export const ChildView = ({ user }: { user: UserProfile }) => {
   const [activeTab, setActiveTab] = useTabState<string>('tab', 'rewards');
@@ -34,7 +35,7 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
   const [rules, setRules] = useState<RewardRule[]>([]);
   const [history, setHistory] = useState<PointHistory[]>([]);
   const [rejectedTasks, setRejectedTasks] = useState<TaskSubmission[]>([]);
-  const [localPoints, setLocalPoints] = useState(user.points);
+  const [localPoints, setLocalPoints] = useState(0);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [successToastType, setSuccessToastType] = useState<'task' | 'redemption'>('task');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
@@ -52,12 +53,11 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
   const refreshNotifications = async () => {
     try {
       const res = await authFetch(`/api/notifications/${user.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setNotifications(data);
-      }
-    } catch (error) {
-      console.error("refreshNotifications Error:", error);
+      if (!res.ok) return;
+      const data = await res.json();
+      setNotifications(data);
+    } catch {
+      // silently ignore
     }
   };
 
@@ -116,6 +116,8 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
       return null;
     }
   };
+
+  const animatedPoints = useAnimatedNumber(localPoints);
 
   const filteredRules = useMemo(() => {
     return rules.filter(rule => {
@@ -357,7 +359,7 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
           <div className="flex items-center justify-between relative z-10">
             <div>
               <p className="text-white/70 text-sm font-bold uppercase tracking-widest mb-1">我的星币</p>
-              <h2 className="text-6xl font-black">{localPoints}</h2>
+              <h2 className="text-6xl font-black">{animatedPoints}</h2>
             </div>
             <div className={`bg-white/20 p-4 rounded-3xl backdrop-blur-sm transition-transform duration-500 ${showPointsIncrease ? 'scale-125 rotate-12 bg-yellow-400/30' : ''}`}>
                <Star size={48} fill="currentColor" className={showPointsIncrease ? 'text-yellow-300' : ''} />
@@ -414,11 +416,17 @@ export const ChildView = ({ user }: { user: UserProfile }) => {
                      />
                    )}
                    <div className="flex items-center gap-4 flex-1 min-w-0">
-                      <div className={`w-12 h-12 flex-shrink-0 rounded-xl flex items-center justify-center transition-colors ${
-                        submittingId === rule.id ? 'bg-brand text-white' : 'bg-brand-light text-brand'
-                      }`}>
-                         <Zap size={24} className={submittingId === rule.id ? 'animate-pulse' : ''} />
-                      </div>
+                      {rule.imageUrl ? (
+                        <div className="w-14 h-14 flex-shrink-0 rounded-xl overflow-hidden">
+                          <img src={rule.imageUrl} alt={rule.title} className="w-full h-full object-cover" />
+                        </div>
+                      ) : (
+                        <div className={`w-12 h-12 flex-shrink-0 rounded-xl flex items-center justify-center transition-colors ${
+                          submittingId === rule.id ? 'bg-brand text-white' : 'bg-brand-light text-brand'
+                        }`}>
+                           <Zap size={24} className={submittingId === rule.id ? 'animate-pulse' : ''} />
+                        </div>
+                      )}
                       <div className="flex-1 min-w-0 pr-4">
                          <p className="font-black text-gray-900 break-words whitespace-normal leading-snug">{rule.title}</p>
                          <div className="flex items-center gap-2 mt-1">

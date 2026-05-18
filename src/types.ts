@@ -24,6 +24,7 @@ export interface RewardRule {
   icon?: string;
   isRepeating: boolean; // true为可重复，false为一次性
   targetChildId?: string; // 'all'或指定孩子ID
+  imageUrl?: string;
 }
 
 export interface RewardItem {

@@ -16,6 +16,12 @@ if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
+// 确保上传目录存在
+const uploadsDir = path.join(dataDir, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 const dbPath = path.join(dataDir, 'kiddie_rewards.db');
 const db = new Database(dbPath);
 
@@ -149,6 +155,7 @@ try { db.exec("ALTER TABLE notifications ADD COLUMN metadata TEXT"); } catch(e) 
 try { db.exec("ALTER TABLE reward_rules ADD COLUMN familyId TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE reward_rules ADD COLUMN isRepeating INTEGER DEFAULT 1"); } catch(e) {}
 try { db.exec("ALTER TABLE reward_rules ADD COLUMN targetChildId TEXT DEFAULT 'all'"); } catch(e) {}
+try { db.exec("ALTER TABLE reward_rules ADD COLUMN imageUrl TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE rewards ADD COLUMN familyId TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE rewards ADD COLUMN targetChildId TEXT DEFAULT 'all'"); } catch(e) {}
 try { db.exec("ALTER TABLE redemption_records ADD COLUMN familyId TEXT"); } catch(e) {}
@@ -214,6 +221,12 @@ async function initDefaults() {
       const existingAdmin = db.prepare('SELECT * FROM users WHERE role = ?').get('admin');
       if (!existingAdmin) {
         db.prepare('INSERT INTO users (id, name, role, points, password) VALUES (?, ?, ?, ?, ?)').run('admin-sys-001', 'admin', 'admin', 0, adminPwdHash);
+      }
+      // 确保已有管理员的密码为当前配置的默认密码（仅首次——迁移旧版本弱密码）
+      const adminPwdDefaulted = db.prepare("SELECT value FROM server_meta WHERE key = 'admin_password_defaulted'").get();
+      if (existingAdmin && !adminPwdDefaulted) {
+        db.prepare('UPDATE users SET password = ? WHERE id = ?').run(adminPwdHash, (existingAdmin as any).id);
+        db.prepare("INSERT OR REPLACE INTO server_meta (key, value) VALUES ('admin_password_defaulted', 'true')").run();
       }
 
       const isSeeded = db.prepare('SELECT value FROM server_meta WHERE key = ?').get('seeded');
@@ -306,7 +319,7 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json());
+  app.use(express.json({ limit: '5mb' }));
 
   // 提取真实客户端IP的辅助函数，特别是Cloudflare Tunnel/Docker Bridge后面
   const getClientIp = (req: express.Request) => {
@@ -976,7 +989,7 @@ async function startServer() {
   });
 
   app.post('/api/rules', authMiddleware, (req, res) => {
-    const { id, parentId, title, points, icon, description, isRepeating, targetChildId } = req.body;
+    const { id, parentId, title, points, icon, description, isRepeating, targetChildId, imageUrl } = req.body;
     const authUser = (req as any).authUser;
     if (authUser.role !== 'admin' && authUser.id !== parentId) {
       return res.status(403).json({ success: false, message: '无权限创建规则' });
@@ -986,8 +999,8 @@ async function startServer() {
       return res.status(403).json({ success: false, message: '无权限创建规则' });
     }
     try {
-      db.prepare('INSERT INTO reward_rules (id, parentId, title, points, icon, description, familyId, isRepeating, targetChildId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(id, parentId, title, points, icon, description, user?.familyId, isRepeating ? 1 : 0, targetChildId || 'all');
+      db.prepare('INSERT INTO reward_rules (id, parentId, title, points, icon, description, familyId, isRepeating, targetChildId, imageUrl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, parentId, title, points, icon, description, user?.familyId, isRepeating ? 1 : 0, targetChildId || 'all', imageUrl || null);
       logAction({
         level: 'INFO',
         action: 'CREATE_RULE',
@@ -1010,14 +1023,14 @@ async function startServer() {
   });
 
   app.put('/api/rules/:id', authMiddleware, (req, res) => {
-    const { title, points, icon, description, isRepeating, targetChildId } = req.body;
+    const { title, points, icon, description, isRepeating, targetChildId, imageUrl } = req.body;
     const authUser = (req as any).authUser;
     const rule = db.prepare('SELECT familyId FROM reward_rules WHERE id = ?').get(req.params.id) as any;
     if (!rule || (authUser.role !== 'admin' && rule.familyId !== authUser.familyId)) {
       return res.status(403).json({ success: false, message: '无权限修改该规则' });
     }
-    db.prepare('UPDATE reward_rules SET title = ?, points = ?, icon = ?, description = ?, isRepeating = ?, targetChildId = ? WHERE id = ?')
-      .run(title, points, icon, description, isRepeating ? 1 : 0, targetChildId || 'all', req.params.id);
+    db.prepare('UPDATE reward_rules SET title = ?, points = ?, icon = ?, description = ?, isRepeating = ?, targetChildId = ?, imageUrl = ? WHERE id = ?')
+      .run(title, points, icon, description, isRepeating ? 1 : 0, targetChildId || 'all', imageUrl || null, req.params.id);
     res.json({ success: true });
   });
 
@@ -1058,7 +1071,7 @@ async function startServer() {
   });
 
   app.post('/api/rewards', authMiddleware, (req, res) => {
-    const { id, parentId, title, pointsRequired, description, targetChildId } = req.body;
+    const { id, parentId, title, pointsRequired, description, targetChildId, image } = req.body;
     const authUser = (req as any).authUser;
     if (authUser.role !== 'admin' && authUser.id !== parentId) {
       return res.status(403).json({ success: false, message: '无权限创建奖励' });
@@ -1067,20 +1080,20 @@ async function startServer() {
     if (!user || (authUser.role !== 'admin' && user.familyId !== authUser.familyId)) {
       return res.status(403).json({ success: false, message: '无权限创建奖励' });
     }
-    db.prepare('INSERT INTO rewards (id, parentId, title, pointsRequired, description, familyId, targetChildId) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, parentId, title, pointsRequired, description, user?.familyId, targetChildId || 'all');
+    db.prepare('INSERT INTO rewards (id, parentId, title, pointsRequired, description, familyId, targetChildId, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, parentId, title, pointsRequired, description, user?.familyId, targetChildId || 'all', image || null);
     res.status(201).json({ success: true });
   });
 
   app.put('/api/rewards/:id', authMiddleware, (req, res) => {
-    const { title, pointsRequired, description, targetChildId } = req.body;
+    const { title, pointsRequired, description, targetChildId, image } = req.body;
     const authUser = (req as any).authUser;
     const reward = db.prepare('SELECT familyId FROM rewards WHERE id = ?').get(req.params.id) as any;
     if (!reward || (authUser.role !== 'admin' && reward.familyId !== authUser.familyId)) {
       return res.status(403).json({ success: false, message: '无权限修改该奖励' });
     }
-    db.prepare('UPDATE rewards SET title = ?, pointsRequired = ?, description = ?, targetChildId = ? WHERE id = ?')
-      .run(title, pointsRequired, description, targetChildId || 'all', req.params.id);
+    db.prepare('UPDATE rewards SET title = ?, pointsRequired = ?, description = ?, targetChildId = ?, image = ? WHERE id = ?')
+      .run(title, pointsRequired, description, targetChildId || 'all', image || null, req.params.id);
     res.json({ success: true });
   });
 
@@ -1534,11 +1547,96 @@ async function startServer() {
     }
   });
 
+  // 文件上传接口
+  app.post('/api/upload', authMiddleware, (req, res) => {
+    try {
+      const { image } = req.body;
+      if (!image || typeof image !== 'string') {
+        return res.status(400).json({ success: false, message: '缺少图片数据' });
+      }
+      // 支持 data:image/...;base64, 格式
+      const matches = image.match(/^data:image\/(\w+);base64,(.+)$/);
+      let ext = 'png';
+      let buffer: Buffer;
+      if (matches) {
+        ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+        buffer = Buffer.from(matches[2], 'base64');
+      } else {
+        // 纯 base64
+        buffer = Buffer.from(image, 'base64');
+      }
+      if (buffer.length > 5 * 1024 * 1024) {
+        return res.status(400).json({ success: false, message: '图片不能超过 5MB' });
+      }
+      const filename = `${Date.now()}_${Math.random().toString(36).substr(2, 6)}.${ext}`;
+      const filepath = path.join(uploadsDir, filename);
+      fs.writeFileSync(filepath, buffer);
+      const url = `/uploads/${filename}`;
+      res.json({ success: true, url });
+    } catch (e) {
+      res.status(500).json({ success: false, message: '上传失败' });
+    }
+  });
+
+  // 删除已上传的图片
+  app.post('/api/upload/delete', authMiddleware, (req, res) => {
+    try {
+      const { url } = req.body;
+      if (!url || typeof url !== 'string') return res.status(400).json({ success: false, message: '缺少 url' });
+      const filename = url.replace('/uploads/', '');
+      const filepath = path.join(uploadsDir, filename);
+      if (fs.existsSync(filepath)) {
+        fs.unlinkSync(filepath);
+      }
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, message: '删除失败' });
+    }
+  });
+
+  // 随机图片获取(从网上免费图库)
+  app.get('/api/random-image', authMiddleware, async (req, res) => {
+    try {
+      const keyword = (req.query.keyword as string) || 'gift';
+      const seed = Math.random().toString(36).substr(2, 8);
+      // 使用 loremflickr（免费，支持关键词，无需 API key）
+      const encodedKeyword = encodeURIComponent(keyword);
+      const imageUrl = `https://loremflickr.com/400/300/${encodedKeyword}?lock=${seed}`;
+      const response = await fetch(imageUrl, { redirect: 'follow' });
+      if (!response.ok) throw new Error('Failed to fetch from loremflickr');
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const ext = 'jpg';
+      const filename = `random_${Date.now()}_${seed}.${ext}`;
+      const filepath = path.join(uploadsDir, filename);
+      fs.writeFileSync(filepath, buffer);
+      const url = `/uploads/${filename}`;
+      res.json({ success: true, url });
+    } catch (e) {
+      // 降级到 picsum.photos
+      try {
+        const fallbackSeed = Math.random().toString(36).substr(2, 8);
+        const fallbackUrl = `https://picsum.photos/seed/${fallbackSeed}/400/300`;
+        const fallbackResp = await fetch(fallbackUrl);
+        if (!fallbackResp.ok) throw new Error('Fallback failed');
+        const fallbackBuf = Buffer.from(await fallbackResp.arrayBuffer());
+        const fallbackFilename = `random_${Date.now()}_${fallbackSeed}.jpg`;
+        const fallbackFilepath = path.join(uploadsDir, fallbackFilename);
+        fs.writeFileSync(fallbackFilepath, fallbackBuf);
+        return res.json({ success: true, url: `/uploads/${fallbackFilename}` });
+      } catch (e2) {
+        return res.status(500).json({ success: false, message: '获取随机图片失败' });
+      }
+    }
+  });
+
   // 未匹配的API路由兜底处理
   app.all('/api/*', (req, res) => {
     console.warn(`[API 404] ${req.method} ${req.url}`);
     res.status(404).json({ error: `API route not found: ${req.url}` });
   });
+
+  // 静态文件服务：上传文件
+  app.use('/uploads', express.static(uploadsDir));
 
   // Vite中间件
   if (process.env.NODE_ENV !== 'production') {

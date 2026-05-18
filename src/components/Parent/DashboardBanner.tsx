@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles } from 'lucide-react';
 import { UserProfile } from '../../types';
+import { useAnimatedNumber } from '../../hooks/useAnimatedNumber';
 
 interface DashboardBannerProps {
   user: UserProfile;
@@ -39,6 +40,11 @@ const childCardVariants = {
 
 const medalEmojis = ['👑', '🥈', '🥉', '🌟', '💫', '✨'];
 
+const AnimatedPoints: React.FC<{ value: number }> = ({ value }) => {
+  const animated = useAnimatedNumber(value);
+  return <>{animated}</>;
+};
+
 export const DashboardBanner: React.FC<DashboardBannerProps> = ({ user, children, onNavigate }) => {
   const [hasAnimated, setHasAnimated] = useState(false);
 
@@ -50,6 +56,7 @@ export const DashboardBanner: React.FC<DashboardBannerProps> = ({ user, children
   const skipAnim = prefersReducedMotion || hasAnimated;
   const sorted = [...children].sort((a, b) => (b.points || 0) - (a.points || 0));
   const displayChildren = sorted.slice(0, 6);
+  const singleChildPoints = useAnimatedNumber(children[0]?.points || 0);
 
   const renderSingleChild = () => {
     const child = children[0];
@@ -67,7 +74,7 @@ export const DashboardBanner: React.FC<DashboardBannerProps> = ({ user, children
         <div className="flex-1 min-w-0">
           <p className="text-xs sm:text-sm opacity-60 font-semibold">{child.name} · 本月星币</p>
           <div className="flex items-baseline gap-1 mt-0.5">
-            <span className="text-3xl sm:text-4xl font-black">{child.points || 0}</span>
+            <span className="text-3xl sm:text-4xl font-black">{singleChildPoints}</span>
             <span className="text-xs sm:text-sm opacity-50 font-semibold">颗</span>
           </div>
         </div>
@@ -105,7 +112,7 @@ export const DashboardBanner: React.FC<DashboardBannerProps> = ({ user, children
               >
                 {c.name}
               </p>
-              <p className="text-xl sm:text-2xl font-black mt-1">{c.points || 0}</p>
+              <p className="text-xl sm:text-2xl font-black mt-1"><AnimatedPoints value={c.points || 0} /></p>
               <p className="text-[10px] sm:text-xs opacity-45 font-medium mt-0.5">颗星币</p>
             </motion.div>
           ))}

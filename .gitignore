@@ -13,4 +13,4 @@ coverage/
 *.log
 .env*
 !.env.example
- kiddierewards-latest.tar.gz
+kiddierewards-latest.tar.gz

@@ -14,11 +14,13 @@ import { SuperAdminView } from './components/Admin/SuperAdminView';
 import { LoginView } from './components/Auth/LoginView';
 import { ParentView } from './components/Parent/ParentView';
 import { ChildView } from './components/Child/ChildView';
+import { OnboardingGuide } from './components/Guide/OnboardingGuide';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem('kiddie_theme') || 'default');
+  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('kiddie_onboarding_done'));
 
   // 页面加载时验证 token 有效性，实现自动登录
   useEffect(() => {
@@ -72,6 +74,7 @@ export default function App() {
     return (
       <div className={`min-h-screen theme-transition ${theme !== 'default' ? `theme-${theme}` : ''}`}>
         <LoginView onLogin={handleLogin} />
+        {showOnboarding && <OnboardingGuide onClose={() => setShowOnboarding(false)} />}
       </div>
     );
   }

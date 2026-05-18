@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plus, 
   Trash2, 
@@ -27,7 +27,10 @@ import {
   User,
   Lock,
   AlertCircle,
-  ChevronDown
+  ChevronDown,
+  Image,
+  Upload,
+  Globe
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DashboardBanner } from './DashboardBanner';
@@ -69,12 +72,18 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
   const [pendingTasks, setPendingTasks] = useState<TaskSubmission[]>([]);
   const [allSubmissions, setAllSubmissions] = useState<TaskSubmission[]>([]);
   const [showAddReward, setShowAddReward] = useState(false);
-  const [newReward, setNewReward] = useState({ title: '', pointsRequired: 50, targetChildId: 'all' });
+  const [newReward, setNewReward] = useState({ title: '', pointsRequired: 50, targetChildId: 'all', image: '' });
   const [editingReward, setEditingReward] = useState<RewardItem | null>(null);
+  const rewardFileInputRef = useRef<HTMLInputElement>(null);
+  const editRewardFileInputRef = useRef<HTMLInputElement>(null);
 
   const [showAddRule, setShowAddRule] = useState(false);
-  const [newRule, setNewRule] = useState({ title: '', points: 10, description: '', isRepeating: true, targetChildId: 'all' });
+  const [newRule, setNewRule] = useState({ title: '', points: 10, description: '', isRepeating: true, targetChildId: 'all', imageUrl: '' });
   const [editingRule, setEditingRule] = useState<RewardRule | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isFetchingImage, setIsFetchingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
   const [taskToReject, setTaskToReject] = useState<TaskSubmission | null>(null);
   const [redemptionToReject, setRedemptionToReject] = useState<RedemptionRecord | null>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState('');
@@ -140,7 +149,7 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...newReward, id, parentId: user.id })
     });
-    setNewReward({ title: '', pointsRequired: 50, targetChildId: 'all' });
+    setNewReward({ title: '', pointsRequired: 50, targetChildId: 'all', image: '' });
     setShowAddReward(false);
     fetchData();
   };
@@ -160,7 +169,15 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
   const deleteReward = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm('确定要删除这个愿望吗？')) return;
+    const reward = rewards.find(r => r.id === id);
     await authFetch(`/api/rewards/${id}`, { method: 'DELETE' });
+    if (reward?.image && reward.image.startsWith('/uploads/')) {
+      await authFetch('/api/upload/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: reward.image })
+      }).catch(() => {});
+    }
     fetchData();
 
   };
@@ -329,6 +346,104 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
     }
   };
 
+  const handleImageUpload = async (file: File, target: 'new' | 'edit') => {
+    if (!file.type.startsWith('image/')) return;
+    setIsUploading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result as string;
+        const res = await authFetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64 })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (target === 'new') {
+            setNewRule(prev => ({ ...prev, imageUrl: data.url }));
+          } else if (editingRule) {
+            setEditingRule({ ...editingRule, imageUrl: data.url });
+          }
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (e) {
+      console.error('Upload failed:', e);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleRandomImage = async (target: 'new' | 'edit') => {
+    setIsFetchingImage(true);
+    try {
+      const keyword = target === 'new' ? newRule.title || 'gift' : editingRule?.title || 'gift';
+      const res = await authFetch(`/api/random-image?keyword=${encodeURIComponent(keyword)}`);
+      const data = await res.json();
+      if (data.success) {
+        if (target === 'new') {
+          setNewRule(prev => ({ ...prev, imageUrl: data.url }));
+        } else if (editingRule) {
+          setEditingRule({ ...editingRule, imageUrl: data.url });
+        }
+      }
+    } catch (e) {
+      console.error('Fetch random image failed:', e);
+    } finally {
+      setIsFetchingImage(false);
+    }
+  };
+
+  const handleRewardImageUpload = async (file: File, target: 'new' | 'edit') => {
+    if (!file.type.startsWith('image/')) return;
+    setIsUploading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result as string;
+        const res = await authFetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64 })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (target === 'new') {
+            setNewReward(prev => ({ ...prev, image: data.url }));
+          } else if (editingReward) {
+            setEditingReward({ ...editingReward, image: data.url });
+          }
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (e) {
+      console.error('Upload failed:', e);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleRewardRandomImage = async (target: 'new' | 'edit') => {
+    setIsFetchingImage(true);
+    try {
+      const keyword = target === 'new' ? newReward.title || 'gift' : editingReward?.title || 'gift';
+      const res = await authFetch(`/api/random-image?keyword=${encodeURIComponent(keyword)}`);
+      const data = await res.json();
+      if (data.success) {
+        if (target === 'new') {
+          setNewReward(prev => ({ ...prev, image: data.url }));
+        } else if (editingReward) {
+          setEditingReward({ ...editingReward, image: data.url });
+        }
+      }
+    } catch (e) {
+      console.error('Fetch random image failed:', e);
+    } finally {
+      setIsFetchingImage(false);
+    }
+  };
+
   const addRule = async () => {
     const id = Math.random().toString(36).substr(2, 9);
     await authFetch('/api/rules', {
@@ -336,7 +451,7 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...newRule, id, parentId: user.id })
     });
-    setNewRule({ title: '', points: 10, description: '', isRepeating: true, targetChildId: 'all' });
+    setNewRule({ title: '', points: 10, description: '', isRepeating: true, targetChildId: 'all', imageUrl: '' });
     setShowAddRule(false);
     fetchData();
   };
@@ -356,7 +471,15 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
   const deleteRule = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm('确定要删除这个规则吗？小朋友将无法再申请此任务。')) return;
+    const rule = rules.find(r => r.id === id);
     await authFetch(`/api/rules/${id}`, { method: 'DELETE' });
+    if (rule?.imageUrl && rule.imageUrl.startsWith('/uploads/')) {
+      await authFetch('/api/upload/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: rule.imageUrl })
+      }).catch(() => {});
+    }
     fetchData();
 
   };
@@ -1026,9 +1149,15 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
                     return (
                       <div key={rule.id} className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between group">
                           <div className="flex items-center gap-4">
-                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${isCompletedForSelected ? 'bg-green-50 text-green-500' : 'bg-brand-light text-brand'}`}>
-                                {isCompletedForSelected ? <Check size={24} /> : <Zap size={24} />}
-                             </div>
+                             {rule.imageUrl ? (
+                               <div className="w-14 h-14 rounded-2xl overflow-hidden flex-shrink-0">
+                                 <img src={rule.imageUrl} alt={rule.title} className="w-full h-full object-cover" />
+                               </div>
+                             ) : (
+                               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${isCompletedForSelected ? 'bg-green-50 text-green-500' : 'bg-brand-light text-brand'}`}>
+                                  {isCompletedForSelected ? <Check size={24} /> : <Zap size={24} />}
+                               </div>
+                             )}
                              <div>
                                 <p className={`font-bold ${isCompletedForSelected ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{rule.title}</p>
                                 <div className="flex flex-wrap items-center gap-2 mt-1">
@@ -1392,12 +1521,16 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
                     <div key={item.id} className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
                        <div className="flex items-center gap-4">
                           <div className="w-16 h-16 bg-brand-light text-brand rounded-2xl flex items-center justify-center flex-shrink-0 overflow-hidden">
-                             <img 
-                               src={`https://picsum.photos/seed/${item.id}/200/200`} 
-                               alt={item.title}
-                               className="w-full h-full object-cover"
-                               referrerPolicy="no-referrer"
-                             />
+                             {item.image ? (
+                               <img src={item.image} alt={item.title} className="w-full h-full object-cover" />
+                             ) : (
+                               <img 
+                                 src={`https://picsum.photos/seed/${item.id}/200/200`} 
+                                 alt={item.title}
+                                 className="w-full h-full object-cover"
+                                 referrerPolicy="no-referrer"
+                               />
+                             )}
                           </div>
                           <div>
                              <p className="font-bold text-gray-800 flex items-center gap-2">
@@ -1489,6 +1622,30 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
                     />
                   </div>
                 )}
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">愿望图片</label>
+                  <div className="flex items-center gap-3">
+                    <input type="file" accept="image/*" ref={rewardFileInputRef} className="hidden" onChange={(e) => e.target.files?.[0] && handleRewardImageUpload(e.target.files[0], 'new')} />
+                    <button onClick={() => rewardFileInputRef.current?.click()} disabled={isUploading} className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-100 transition-all disabled:opacity-50">
+                      <Upload size={16} />
+                      {isUploading ? '上传中...' : '本地上传'}
+                    </button>
+                    <button onClick={() => handleRewardRandomImage('new')} disabled={isFetchingImage} className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-100 transition-all disabled:opacity-50">
+                      <Globe size={16} />
+                      {isFetchingImage ? '获取中...' : '随机图片'}
+                    </button>
+                    {newReward.image && (
+                      <button onClick={() => setNewReward({...newReward, image: ''})} className="p-2 text-red-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  {newReward.image && (
+                    <div className="mt-2 w-full h-32 rounded-xl overflow-hidden bg-gray-50">
+                      <img src={newReward.image} alt="preview" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                </div>
                 <button onClick={addReward} className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4">确认发布</button>
               </div>
             </motion.div>
@@ -1521,6 +1678,30 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
                     />
                   </div>
                 )}
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">愿望图片</label>
+                  <div className="flex items-center gap-3">
+                    <input type="file" accept="image/*" ref={editRewardFileInputRef} className="hidden" onChange={(e) => e.target.files?.[0] && handleRewardImageUpload(e.target.files[0], 'edit')} />
+                    <button onClick={() => editRewardFileInputRef.current?.click()} disabled={isUploading} className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-100 transition-all disabled:opacity-50">
+                      <Upload size={16} />
+                      {isUploading ? '上传中...' : '本地上传'}
+                    </button>
+                    <button onClick={() => handleRewardRandomImage('edit')} disabled={isFetchingImage} className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-100 transition-all disabled:opacity-50">
+                      <Globe size={16} />
+                      {isFetchingImage ? '获取中...' : '随机图片'}
+                    </button>
+                    {editingReward.image && (
+                      <button onClick={() => setEditingReward({...editingReward, image: ''})} className="p-2 text-red-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  {editingReward.image && (
+                    <div className="mt-2 w-full h-32 rounded-xl overflow-hidden bg-gray-50">
+                      <img src={editingReward.image} alt="preview" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                </div>
                 <button onClick={updateReward} className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4">保存修改</button>
               </div>
             </motion.div>
@@ -1570,6 +1751,30 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
                     />
                   </div>
                 )}
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">任务图片</label>
+                  <div className="flex items-center gap-3">
+                    <input type="file" accept="image/*" ref={editFileInputRef} className="hidden" onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0], 'edit')} />
+                    <button onClick={() => editFileInputRef.current?.click()} disabled={isUploading} className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-100 transition-all disabled:opacity-50">
+                      <Upload size={16} />
+                      {isUploading ? '上传中...' : '本地上传'}
+                    </button>
+                    <button onClick={() => handleRandomImage('edit')} disabled={isFetchingImage} className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-100 transition-all disabled:opacity-50">
+                      <Globe size={16} />
+                      {isFetchingImage ? '获取中...' : '随机图片'}
+                    </button>
+                    {editingRule.imageUrl && (
+                      <button onClick={() => setEditingRule({...editingRule, imageUrl: ''})} className="p-2 text-red-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  {editingRule.imageUrl && (
+                    <div className="mt-2 w-full h-32 rounded-xl overflow-hidden bg-gray-50">
+                      <img src={editingRule.imageUrl} alt="preview" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                </div>
                 <button onClick={updateRule} className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4">保存规则</button>
               </div>
             </motion.div>
@@ -1619,6 +1824,30 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
                     />
                   </div>
                 )}
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">任务图片</label>
+                  <div className="flex items-center gap-3">
+                    <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0], 'new')} />
+                    <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-100 transition-all disabled:opacity-50">
+                      <Upload size={16} />
+                      {isUploading ? '上传中...' : '本地上传'}
+                    </button>
+                    <button onClick={() => handleRandomImage('new')} disabled={isFetchingImage} className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-100 transition-all disabled:opacity-50">
+                      <Globe size={16} />
+                      {isFetchingImage ? '获取中...' : '随机图片'}
+                    </button>
+                    {newRule.imageUrl && (
+                      <button onClick={() => setNewRule({...newRule, imageUrl: ''})} className="p-2 text-red-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  {newRule.imageUrl && (
+                    <div className="mt-2 w-full h-32 rounded-xl overflow-hidden bg-gray-50">
+                      <img src={newRule.imageUrl} alt="preview" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                </div>
                 <button onClick={addRule} className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4">确认添加</button>
               </div>
             </motion.div>
@@ -1636,18 +1865,18 @@ export const ParentView = ({ user, onLogout, onSetTheme, currentTheme }: {
               <div className="space-y-4">
                 <div>
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">成员名称</label>
-                  <input type="text" className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" placeholder="例如：乐妈" value={newChildName} onChange={(e) => setNewChildName(e.target.value)} />
+                  <input type="text" className="w-full bg-gray-50 border-2 border-transparent rounded-xl p-4 font-semibold text-gray-900 focus:border-brand focus:bg-white outline-none transition-all" placeholder="例如：乐妈" value={newChildName} onChange={(e) => setNewChildName(e.target.value)} />
                 </div>
                 <div>
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">角色</label>
                   <div className="flex gap-2">
-                    <button onClick={() => setNewMemberRole('parent')} className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${newMemberRole === 'parent' ? 'bg-brand-light text-brand ring-2 ring-brand' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>家长</button>
-                    <button onClick={() => setNewMemberRole('child')} className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${newMemberRole === 'child' ? 'bg-secondary-light text-secondary ring-2 ring-secondary' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>小朋友</button>
+                    <button onClick={() => setNewMemberRole('parent')} className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${newMemberRole === 'parent' ? 'bg-brand-light text-brand border-2 border-brand shadow-sm' : 'bg-gray-50 text-gray-400 border-2 border-transparent hover:bg-gray-100'}`}>家长</button>
+                    <button onClick={() => setNewMemberRole('child')} className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${newMemberRole === 'child' ? 'bg-secondary-light text-secondary border-2 border-secondary shadow-sm' : 'bg-gray-50 text-gray-400 border-2 border-transparent hover:bg-gray-100'}`}>小朋友</button>
                   </div>
                 </div>
                 <div>
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">密码</label>
-                  <input type="password" className="w-full bg-gray-50 border-none rounded-xl p-4 font-semibold text-gray-900 focus:ring-2 focus:ring-brand" placeholder="至少6位密码" value={newChildPassword} onChange={(e) => setNewChildPassword(e.target.value)} />
+                  <input type="password" className="w-full bg-gray-50 border-2 border-transparent rounded-xl p-4 font-semibold text-gray-900 focus:border-brand focus:bg-white outline-none transition-all" placeholder="至少6位密码" value={newChildPassword} onChange={(e) => setNewChildPassword(e.target.value)} />
                 </div>
                 <button onClick={addMember} className="w-full py-4 bg-brand text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-light hover:bg-brand-hover mt-4">确认添加成员</button>
               </div>

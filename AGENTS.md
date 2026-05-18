@@ -143,6 +143,10 @@ Logs are **JSONL files**, not database rows. Structured as `logs/<year>/<month>/
 - Health check: `GET /api/health` every 30s (uses `wget`, not `curl`)
 - Export workflow: `./build-docker.sh` → `.tar.gz` → `gunzip | docker load`
 
+## Communication Rules
+
+1. **全程使用中文**: 所有与用户的沟通、解释、思维链展示、代码注释中的说明文字，全部使用简体中文。仅在代码关键字、标识符、已有英文命名等场景保留原文。
+
 ## Environment Variables
 
 | Variable | Required | Description |

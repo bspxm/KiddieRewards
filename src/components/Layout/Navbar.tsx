@@ -138,7 +138,7 @@ export const Navbar = ({ user, onLogout, onSetTheme, currentTheme }: {
           <div className="hidden md:block">
             <p className="text-sm font-black text-gray-800 leading-none">{user?.name}</p>
             <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-1">
-              {user?.role === 'admin' ? '总管端' : '家长端'}
+              {user?.role === 'admin' ? '总管端' : user?.role === 'child' ? '小朋友' : '家长端'}
             </p>
           </div>
           <button onClick={onLogout} className="text-gray-400 hover:text-red-500 ml-1 transition-colors">
